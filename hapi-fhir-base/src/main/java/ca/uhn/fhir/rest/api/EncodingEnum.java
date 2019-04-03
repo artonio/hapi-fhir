@@ -42,6 +42,13 @@ public enum EncodingEnum {
 		public IParser newParser(FhirContext theContext) {
 			return theContext.newXmlParser();
 		}
+	},
+
+	RDF(Constants.CT_FHIR_RDF, Constants.CT_FHIR_RDF, Constants.FORMAT_RDF) {
+		@Override
+		public IParser newParser(FhirContext theContext) {
+			return theContext.newRdfParser();
+		}
 	};
 
 	/**
