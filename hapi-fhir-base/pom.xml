@@ -18,6 +18,18 @@
 
 	<dependencies>
 
+		<!-- RDF -->
+		<dependency>
+			<groupId>org.eclipse.rdf4j</groupId>
+			<artifactId>rdf4j-runtime-osgi</artifactId>
+			<version>2.5.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.eclipse.rdf4j</groupId>
+			<artifactId>rdf4j-rio-turtle</artifactId>
+			<optional>true</optional>
+			<version>2.5.0</version>
+		</dependency>
 		<!-- JSON -->
 		<dependency>
 			<groupId>com.google.code.gson</groupId>
@@ -157,6 +169,7 @@
 							<!--required when using servers-->
 							ca.uhn.fhir.rest.api.server;resolution:=optional,
 							ca.uhn.fhir.model.api;resolution:=optional,
+							org.eclipse.rdf4j.model.util;resolution:=optional,
 							*
 						</Import-Package>
 					</instructions>

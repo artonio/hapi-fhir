@@ -1247,7 +1247,7 @@ public abstract class BaseParser implements IParser {
 	protected class EncodeContext extends EncodeContextPath {
 		private final ArrayList<EncodeContextPathElement> myResourcePath = new ArrayList<>(10);
 
-		protected ArrayList<EncodeContextPathElement> getResourcePath() {
+		public ArrayList<EncodeContextPathElement> getResourcePath() {
 			return myResourcePath;
 		}
 

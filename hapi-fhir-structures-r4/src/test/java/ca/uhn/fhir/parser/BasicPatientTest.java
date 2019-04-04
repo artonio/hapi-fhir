@@ -26,10 +26,14 @@ public class BasicPatientTest {
 	@Test
 	public void basicPatient() {
 		Patient pat = new Patient();
+		pat.setId("pat1");
 		pat.addName().setFamily("Simpson");
 
 		IParser parser = ourCtx.newJsonParser().setPrettyPrint(true);
 		String jsonStr = parser.encodeResourceToString(pat);
+
+		IParser rdfParser = ourCtx.newRdfParser().setPrettyPrint(true);
+		String ttlStr = rdfParser.encodeResourceToString(pat);
 
 		ourLog.info(jsonStr);
 	}
