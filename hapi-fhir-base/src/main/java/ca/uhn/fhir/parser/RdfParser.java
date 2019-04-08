@@ -1,32 +1,41 @@
-package ca.uhn.fhir;
+package ca.uhn.fhir.parser;
 
 import ca.uhn.fhir.context.FhirContext;
 import ca.uhn.fhir.context.RuntimeResourceDefinition;
-import ca.uhn.fhir.parser.BaseParser;
-import ca.uhn.fhir.parser.DataFormatException;
-import ca.uhn.fhir.parser.IParser;
-import ca.uhn.fhir.parser.IParserErrorHandler;
 import ca.uhn.fhir.rest.api.EncodingEnum;
 import org.apache.commons.lang3.StringUtils;
+import org.eclipse.rdf4j.model.BNode;
+import org.eclipse.rdf4j.model.Model;
+import org.eclipse.rdf4j.model.Statement;
+import org.eclipse.rdf4j.model.ValueFactory;
+import org.eclipse.rdf4j.model.impl.SimpleValueFactory;
 import org.eclipse.rdf4j.model.util.ModelBuilder;
+import org.eclipse.rdf4j.model.vocabulary.RDF;
+import org.eclipse.rdf4j.rio.helpers.BasicWriterSettings;
 import org.eclipse.rdf4j.rio.turtle.TurtleWriter;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
 
 import java.io.IOException;
 import java.io.Reader;
+import java.io.StringWriter;
 import java.io.Writer;
+import java.util.Iterator;
+import java.util.UUID;
 
 public class RdfParser extends BaseParser {
 
     private FhirContext myContext;
     private boolean myPrettyPrint;
 
+    private String fhirUrl = "http://hl7.org/fhir/";
+
     ModelBuilder builder = new ModelBuilder();
 
     public RdfParser(FhirContext theContext, IParserErrorHandler theParserErrorHandler) {
         super(theContext, theParserErrorHandler);
         myContext = theContext;
+        builder.setNamespace("fhir", "http://hl7.org/fhir/");
     }
 
     @Override
@@ -57,6 +66,7 @@ public class RdfParser extends BaseParser {
 
     }
 
+    @SuppressWarnings("Duplicates")
     private void encodeResourceToTurtleStreamWriter(RuntimeResourceDefinition theResDef, IBaseResource theResource, TurtleWriter theEventWriter, String theObjectNameOrNull,
                                                     boolean theContainedResource, EncodeContext theEncodeContext) throws IOException {
         IIdType resourceId = null;
@@ -81,6 +91,7 @@ public class RdfParser extends BaseParser {
         encodeResourceToTurtleStreamWriter(theResDef, theResource, theEventWriter, theObjectNameOrNull, theContainedResource, resourceId, theEncodeContext);
     }
 
+    @SuppressWarnings("Duplicates")
     private void encodeResourceToTurtleStreamWriter(RuntimeResourceDefinition theResDef, IBaseResource theResource, TurtleWriter theEventWriter, String theObjectNameOrNull,
                                                   boolean theContainedResource, IIdType theResourceId, EncodeContext theEncodeContext) throws IOException {
         if (!super.shouldEncodeResource(theResDef.getName())) {
@@ -92,5 +103,62 @@ public class RdfParser extends BaseParser {
         }
 
         RuntimeResourceDefinition resDef = myContext.getResourceDefinition(theResource);
+        if (theObjectNameOrNull == null) {
+        } else {
+        }
+
+        String resId = UUID.randomUUID().toString();
+        String resourceUrl = fhirUrl
+                                .concat(resDef.getName())
+                                .concat("/")
+                                .concat(resId);
+        if (theResourceId != null && theResourceId.hasIdPart()) {
+            resId = theResourceId.getIdPart();
+            resourceUrl = fhirUrl
+                    .concat(resDef.getName())
+                    .concat("/")
+                    .concat(resId);
+        }
+
+        builder.subject(resourceUrl)
+                .add(RDF.TYPE, "fhir:Patient")
+                .add("fhir:nodeRole", "fhir:treeRoot");
+
+        this.makeResourceIdTriple(resourceUrl, resId);
+
+       this.logTurtle(builder);
+
+
+
     }
+
+    private void makeResourceIdTriple(String originalSubject, String id) {
+        ValueFactory vf = SimpleValueFactory.getInstance();
+        BNode resId = vf.createBNode();
+        builder.subject(originalSubject)
+                .add("fhir:Resource.id", resId)
+                .subject(resId)			    // switch the subject
+                .add("fhir:value", id)
+                .subject(originalSubject);
+    }
+
+    private void logTurtle(ModelBuilder builder) {
+        StringWriter sw = new StringWriter();
+        TurtleWriter tw = new TurtleWriter(sw);
+        tw.getWriterConfig().set(BasicWriterSettings.PRETTY_PRINT, true).set(BasicWriterSettings.INLINE_BLANK_NODES,
+                true);
+        Model m = builder.build();
+
+        tw.startRDF();
+        tw.handleNamespace("fhir", "http://hl7.org/fhir/");
+        Iterator<Statement> statementIterator = m.iterator();
+        while (statementIterator.hasNext()) {
+            Statement s = statementIterator.next();
+            tw.handleStatement(s);
+        }
+        tw.endRDF();
+
+        System.out.println(sw.toString());
+    }
+
 }

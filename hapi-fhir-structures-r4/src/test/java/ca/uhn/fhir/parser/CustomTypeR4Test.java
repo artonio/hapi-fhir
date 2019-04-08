@@ -62,7 +62,10 @@ public class CustomTypeR4Test {
 		pt.setFoo(new DateTimeType("2011-01-01T00:00:00Z"));
 		
 		String encoded = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(pt);
-		ourLog.info(encoded);
+//		ourLog.info(encoded);
+
+		String jsonEncoded = ourCtx.newJsonParser().setPrettyPrint(true).encodeResourceToString(pt);
+		ourLog.info(jsonEncoded);
 		
 		pt = ourCtx.newXmlParser().parseResource(PatientWithExtensionWithTwoTypes.class, encoded);
 		assertEquals("2011-01-01T00:00:00Z", ((DateTimeType)pt.getFoo()).getValueAsString());

@@ -1,6 +1,6 @@
 package ca.uhn.fhir.context;
 
-import ca.uhn.fhir.RdfParser;
+import ca.uhn.fhir.parser.RdfParser;
 import ca.uhn.fhir.context.api.AddProfileTagEnum;
 import ca.uhn.fhir.context.support.IContextValidationSupport;
 import ca.uhn.fhir.fluentpath.IFluentPath;
