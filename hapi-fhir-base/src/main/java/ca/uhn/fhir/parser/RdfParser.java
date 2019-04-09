@@ -21,6 +21,7 @@ import java.io.Reader;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.UUID;
 
 public class RdfParser extends BaseParser {
@@ -103,6 +104,8 @@ public class RdfParser extends BaseParser {
         }
 
         RuntimeResourceDefinition resDef = myContext.getResourceDefinition(theResource);
+        Map<String, String> fieldClassMap = myContext.getFieldDeclaringClassMap(theResource);
+
         if (theObjectNameOrNull == null) {
         } else {
         }
@@ -120,11 +123,8 @@ public class RdfParser extends BaseParser {
                     .concat(resId);
         }
 
-        builder.subject(resourceUrl)
-                .add(RDF.TYPE, "fhir:Patient")
-                .add("fhir:nodeRole", "fhir:treeRoot");
-
-        this.makeResourceIdTriple(resourceUrl, resId);
+        this.makeIdentifierTriple(resourceUrl, "fhir:" + resDef.getName());
+        this.makeResourceIdTriple(resourceUrl, resId, fieldClassMap);
 
        this.logTurtle(builder);
 
@@ -132,14 +132,22 @@ public class RdfParser extends BaseParser {
 
     }
 
-    private void makeResourceIdTriple(String originalSubject, String id) {
+    private void makeResourceIdTriple(String originalSubject, String id, Map<String, String> fieldClassMap) {
+        String key = "id";
+        String resourceIdPredicate = "fhir:" + fieldClassMap.get(key) + "." + key;
         ValueFactory vf = SimpleValueFactory.getInstance();
         BNode resId = vf.createBNode();
         builder.subject(originalSubject)
-                .add("fhir:Resource.id", resId)
+                .add(resourceIdPredicate, resId)
                 .subject(resId)			    // switch the subject
                 .add("fhir:value", id)
                 .subject(originalSubject);
+    }
+
+    private void makeIdentifierTriple(String resourceUrl, String resourceType) {
+        builder.subject(resourceUrl)
+                .add(RDF.TYPE, resourceType)
+                .add("fhir:nodeRole", "fhir:treeRoot");
     }
 
     private void logTurtle(ModelBuilder builder) {

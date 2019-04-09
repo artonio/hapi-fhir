@@ -1,6 +1,5 @@
 package ca.uhn.fhir.context;
 
-import ca.uhn.fhir.parser.RdfParser;
 import ca.uhn.fhir.context.api.AddProfileTagEnum;
 import ca.uhn.fhir.context.support.IContextValidationSupport;
 import ca.uhn.fhir.fluentpath.IFluentPath;
@@ -26,6 +25,7 @@ import org.hl7.fhir.instance.model.api.IBaseBundle;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.util.*;
@@ -432,6 +432,31 @@ public class FhirContext {
 		validateInitialized();
 		Validate.notNull(theResource, "theResource must not be null");
 		return getResourceDefinition(theResource.getClass());
+	}
+
+	/**
+	 * Returns the map where field name is the key and declaring class is the value
+	 * Needed for RDF Serialization
+	 */
+	public Map<String, String> getFieldDeclaringClassMap(IBaseResource theResource) {
+		Map<String, String> m = new Hashtable<>();
+		List<Field> fieldList = getFields(theResource);
+		for(Field f : fieldList) {
+			m.put(f.getName(), f.getDeclaringClass().getSimpleName());
+		}
+
+		return m;
+	}
+
+	public List<Field> getFields(IBaseResource theResource) {
+		Validate.notNull(theResource, "theResource must not be null");
+		List<Field> fields = new ArrayList<>();
+		Class clazz = theResource.getClass();
+		while (clazz != Object.class) {
+			fields.addAll(Arrays.asList(clazz.getDeclaredFields()));
+			clazz = clazz.getSuperclass();
+		}
+		return fields;
 	}
 
 	/**
