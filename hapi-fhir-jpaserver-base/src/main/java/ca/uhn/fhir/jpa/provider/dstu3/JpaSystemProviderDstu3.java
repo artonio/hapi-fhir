@@ -1,19 +1,28 @@
 package ca.uhn.fhir.jpa.provider.dstu3;
 
+import ca.uhn.fhir.jpa.api.dao.IFhirSystemDao;
 import ca.uhn.fhir.jpa.dao.FulltextSearchSvcImpl.Suggestion;
-import ca.uhn.fhir.jpa.dao.IFhirSystemDao;
 import ca.uhn.fhir.jpa.dao.IFulltextSearchSvc;
+import ca.uhn.fhir.jpa.model.util.JpaConstants;
 import ca.uhn.fhir.jpa.provider.BaseJpaSystemProviderDstu2Plus;
-import ca.uhn.fhir.jpa.util.JpaConstants;
 import ca.uhn.fhir.model.api.annotation.Description;
-import ca.uhn.fhir.rest.annotation.*;
+import ca.uhn.fhir.rest.annotation.IdParam;
+import ca.uhn.fhir.rest.annotation.Operation;
+import ca.uhn.fhir.rest.annotation.OperationParam;
+import ca.uhn.fhir.rest.annotation.Transaction;
+import ca.uhn.fhir.rest.annotation.TransactionParam;
 import ca.uhn.fhir.rest.api.server.RequestDetails;
 import ca.uhn.fhir.rest.server.exceptions.InternalErrorException;
 import ca.uhn.fhir.rest.server.exceptions.InvalidRequestException;
 import ca.uhn.fhir.rest.server.servlet.ServletRequestDetails;
-import org.hl7.fhir.convertors.VersionConvertor_30_40;
-import org.hl7.fhir.dstu3.model.*;
+import org.hl7.fhir.dstu3.model.BooleanType;
+import org.hl7.fhir.dstu3.model.Bundle;
+import org.hl7.fhir.dstu3.model.DecimalType;
+import org.hl7.fhir.dstu3.model.IntegerType;
+import org.hl7.fhir.dstu3.model.Meta;
+import org.hl7.fhir.dstu3.model.Parameters;
 import org.hl7.fhir.dstu3.model.Parameters.ParametersParameterComponent;
+import org.hl7.fhir.dstu3.model.StringType;
 import org.hl7.fhir.exceptions.FHIRException;
 import org.hl7.fhir.instance.model.api.IBaseBundle;
 import org.hl7.fhir.instance.model.api.IIdType;
@@ -29,19 +38,20 @@ import java.util.TreeMap;
 
 import static org.apache.commons.lang3.ObjectUtils.defaultIfNull;
 import static org.apache.commons.lang3.StringUtils.isBlank;
+import static org.hl7.fhir.convertors.conv30_40.Parameters30_40.convertParameters;
 
 /*
  * #%L
  * HAPI FHIR JPA Server
  * %%
- * Copyright (C) 2014 - 2019 University Health Network
+ * Copyright (C) 2014 - 2020 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -67,11 +77,12 @@ public class JpaSystemProviderDstu3 extends BaseJpaSystemProviderDstu2Plus<Bundl
 		@OperationParam(name = JpaConstants.OPERATION_EXPUNGE_PARAM_LIMIT) IntegerType theLimit,
 		@OperationParam(name = JpaConstants.OPERATION_EXPUNGE_PARAM_EXPUNGE_DELETED_RESOURCES) BooleanType theExpungeDeletedResources,
 		@OperationParam(name = JpaConstants.OPERATION_EXPUNGE_PARAM_EXPUNGE_PREVIOUS_VERSIONS) BooleanType theExpungeOldVersions,
-		@OperationParam(name = JpaConstants.OPERATION_EXPUNGE_PARAM_EXPUNGE_EVERYTHING) BooleanType theExpungeEverything
+		@OperationParam(name = JpaConstants.OPERATION_EXPUNGE_PARAM_EXPUNGE_EVERYTHING) BooleanType theExpungeEverything,
+		RequestDetails theRequestDetails
 	) {
-		org.hl7.fhir.r4.model.Parameters retVal = super.doExpunge(theLimit, theExpungeDeletedResources, theExpungeOldVersions, theExpungeEverything);
+		org.hl7.fhir.r4.model.Parameters retVal = super.doExpunge(theLimit, theExpungeDeletedResources, theExpungeOldVersions, theExpungeEverything, theRequestDetails);
 		try {
-			return VersionConvertor_30_40.convertParameters(retVal);
+			return convertParameters(retVal);
 		} catch (FHIRException e) {
 			throw new InternalErrorException(e);
 		}
@@ -84,11 +95,12 @@ public class JpaSystemProviderDstu3 extends BaseJpaSystemProviderDstu2Plus<Bundl
 		@OperationParam(name = JpaConstants.OPERATION_EXPUNGE_PARAM_LIMIT) IntegerType theLimit,
 		@OperationParam(name = JpaConstants.OPERATION_EXPUNGE_PARAM_EXPUNGE_DELETED_RESOURCES) BooleanType theExpungeDeletedResources,
 		@OperationParam(name = JpaConstants.OPERATION_EXPUNGE_PARAM_EXPUNGE_PREVIOUS_VERSIONS) BooleanType theExpungeOldVersions,
-		@OperationParam(name = JpaConstants.OPERATION_EXPUNGE_PARAM_EXPUNGE_EVERYTHING) BooleanType theExpungeEverything
+		@OperationParam(name = JpaConstants.OPERATION_EXPUNGE_PARAM_EXPUNGE_EVERYTHING) BooleanType theExpungeEverything,
+		RequestDetails theRequestDetails
 	) {
-		org.hl7.fhir.r4.model.Parameters retVal = super.doExpunge(theLimit, theExpungeDeletedResources, theExpungeOldVersions, theExpungeEverything);
+		org.hl7.fhir.r4.model.Parameters retVal = super.doExpunge(theLimit, theExpungeDeletedResources, theExpungeOldVersions, theExpungeEverything, theRequestDetails);
 		try {
-			return VersionConvertor_30_40.convertParameters(retVal);
+			return convertParameters(retVal);
 		} catch (FHIRException e) {
 			throw new InternalErrorException(e);
 		}
@@ -216,8 +228,8 @@ public class JpaSystemProviderDstu3 extends BaseJpaSystemProviderDstu2Plus<Bundl
 	public Parameters suggestKeywords(
 		@OperationParam(name = "context", min = 1, max = 1) String theContext,
 		@OperationParam(name = "searchParam", min = 1, max = 1) String theSearchParam,
-		@OperationParam(name = "text", min = 1, max = 1) String theText
-	) {
+		@OperationParam(name = "text", min = 1, max = 1) String theText,
+		RequestDetails theRequest) {
 
 
 		if (isBlank(theContext)) {
@@ -230,7 +242,7 @@ public class JpaSystemProviderDstu3 extends BaseJpaSystemProviderDstu2Plus<Bundl
 			throw new InvalidRequestException("Parameter 'text' must be provided");
 		}
 
-		List<Suggestion> keywords = mySearchDao.suggestKeywords(theContext, theSearchParam, theText);
+		List<Suggestion> keywords = mySearchDao.suggestKeywords(theContext, theSearchParam, theText, theRequest);
 
 		Parameters retVal = new Parameters();
 		for (Suggestion next : keywords) {

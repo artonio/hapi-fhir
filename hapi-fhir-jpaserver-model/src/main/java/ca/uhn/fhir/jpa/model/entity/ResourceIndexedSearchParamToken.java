@@ -4,14 +4,14 @@ package ca.uhn.fhir.jpa.model.entity;
  * #%L
  * HAPI FHIR Model
  * %%
- * Copyright (C) 2014 - 2019 University Health Network
+ * Copyright (C) 2014 - 2020 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -20,6 +20,8 @@ package ca.uhn.fhir.jpa.model.entity;
  * #L%
  */
 
+import ca.uhn.fhir.interceptor.model.RequestPartitionId;
+import ca.uhn.fhir.jpa.model.config.PartitionSettings;
 import ca.uhn.fhir.model.api.IQueryParameterType;
 import ca.uhn.fhir.rest.param.TokenParam;
 import org.apache.commons.lang3.StringUtils;
@@ -29,7 +31,16 @@ import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 import org.hibernate.search.annotations.Field;
 
-import javax.persistence.*;
+import javax.persistence.Column;
+import javax.persistence.Embeddable;
+import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
+import javax.persistence.GenerationType;
+import javax.persistence.Id;
+import javax.persistence.Index;
+import javax.persistence.SequenceGenerator;
+import javax.persistence.Table;
+import javax.validation.constraints.NotNull;
 
 import static org.apache.commons.lang3.StringUtils.defaultString;
 import static org.apache.commons.lang3.StringUtils.trim;
@@ -101,33 +112,40 @@ public class ResourceIndexedSearchParamToken extends BaseResourceIndexedSearchPa
 	/**
 	 * Constructor
 	 */
-	public ResourceIndexedSearchParamToken(String theName, String theSystem, String theValue) {
+	public ResourceIndexedSearchParamToken(PartitionSettings thePartitionSettings, String theResourceType, String theParamName, String theSystem, String theValue) {
 		super();
-		setParamName(theName);
+		setPartitionSettings(thePartitionSettings);
+		setResourceType(theResourceType);
+		setParamName(theParamName);
 		setSystem(theSystem);
 		setValue(theValue);
+		calculateHashes();
 	}
 
 	@Override
-	@PrePersist
+	public <T extends BaseResourceIndex> void copyMutableValuesFrom(T theSource) {
+		super.copyMutableValuesFrom(theSource);
+		ResourceIndexedSearchParamToken source = (ResourceIndexedSearchParamToken) theSource;
+
+		mySystem = source.mySystem;
+		myValue = source.myValue;
+		myHashSystem = source.myHashSystem;
+		myHashSystemAndValue = source.getHashSystemAndValue();
+		myHashValue = source.myHashValue;
+		myHashIdentity = source.myHashIdentity;
+	}
+
+
+	@Override
 	public void calculateHashes() {
-		if (myHashSystem == null) {
-			String resourceType = getResourceType();
-			String paramName = getParamName();
-			String system = getSystem();
-			String value = getValue();
-			setHashIdentity(calculateHashIdentity(resourceType, paramName));
-			setHashSystem(calculateHashSystem(resourceType, paramName, system));
-			setHashSystemAndValue(calculateHashSystemAndValue(resourceType, paramName, system, value));
-			setHashValue(calculateHashValue(resourceType, paramName, value));
-		}
-	}
-
-	@Override
-	protected void clearHashes() {
-		myHashSystem = null;
-		myHashSystemAndValue = null;
-		myHashValue = null;
+		String resourceType = getResourceType();
+		String paramName = getParamName();
+		String system = getSystem();
+		String value = getValue();
+		setHashIdentity(calculateHashIdentity(getPartitionSettings(), getPartitionId(), resourceType, paramName));
+		setHashSystem(calculateHashSystem(getPartitionSettings(), getPartitionId(), resourceType, paramName, system));
+		setHashSystemAndValue(calculateHashSystemAndValue(getPartitionSettings(), getPartitionId(), resourceType, paramName, system, value));
+		setHashValue(calculateHashValue(getPartitionSettings(), getPartitionId(), resourceType, paramName, value));
 	}
 
 	@Override
@@ -143,19 +161,13 @@ public class ResourceIndexedSearchParamToken extends BaseResourceIndexedSearchPa
 		}
 		ResourceIndexedSearchParamToken obj = (ResourceIndexedSearchParamToken) theObj;
 		EqualsBuilder b = new EqualsBuilder();
-		b.append(getParamName(), obj.getParamName());
-		b.append(getResource(), obj.getResource());
-		b.append(getSystem(), obj.getSystem());
-		b.append(getValue(), obj.getValue());
-		b.append(getHashIdentity(), obj.getHashIdentity());
 		b.append(getHashSystem(), obj.getHashSystem());
-		b.append(getHashSystemAndValue(), obj.getHashSystemAndValue());
 		b.append(getHashValue(), obj.getHashValue());
+		b.append(getHashSystemAndValue(), obj.getHashSystemAndValue());
 		return b.isEquals();
 	}
 
 	Long getHashSystem() {
-		calculateHashes();
 		return myHashSystem;
 	}
 
@@ -163,27 +175,19 @@ public class ResourceIndexedSearchParamToken extends BaseResourceIndexedSearchPa
 		myHashSystem = theHashSystem;
 	}
 
-	private Long getHashIdentity() {
-		calculateHashes();
-		return myHashIdentity;
-	}
-
 	private void setHashIdentity(Long theHashIdentity) {
 		myHashIdentity = theHashIdentity;
 	}
 
 	Long getHashSystemAndValue() {
-		calculateHashes();
 		return myHashSystemAndValue;
 	}
 
 	private void setHashSystemAndValue(Long theHashSystemAndValue) {
-		calculateHashes();
 		myHashSystemAndValue = theHashSystemAndValue;
 	}
 
 	Long getHashValue() {
-		calculateHashes();
 		return myHashValue;
 	}
 
@@ -198,7 +202,7 @@ public class ResourceIndexedSearchParamToken extends BaseResourceIndexedSearchPa
 
 	@Override
 	public void setId(Long theId) {
-		myId =theId;
+		myId = theId;
 	}
 
 	public String getSystem() {
@@ -206,7 +210,6 @@ public class ResourceIndexedSearchParamToken extends BaseResourceIndexedSearchPa
 	}
 
 	public void setSystem(String theSystem) {
-		clearHashes();
 		mySystem = StringUtils.defaultIfBlank(theSystem, null);
 	}
 
@@ -214,19 +217,18 @@ public class ResourceIndexedSearchParamToken extends BaseResourceIndexedSearchPa
 		return myValue;
 	}
 
-	public void setValue(String theValue) {
-		clearHashes();
+	public ResourceIndexedSearchParamToken setValue(String theValue) {
 		myValue = StringUtils.defaultIfBlank(theValue, null);
+		return this;
 	}
 
 	@Override
 	public int hashCode() {
-		calculateHashes();
 		HashCodeBuilder b = new HashCodeBuilder();
-		b.append(getParamName());
-		b.append(getResource());
-		b.append(getSystem());
-		b.append(getValue());
+		b.append(getResourceType());
+		b.append(getHashValue());
+		b.append(getHashSystem());
+		b.append(getHashSystemAndValue());
 		return b.toHashCode();
 	}
 
@@ -238,51 +240,54 @@ public class ResourceIndexedSearchParamToken extends BaseResourceIndexedSearchPa
 	@Override
 	public String toString() {
 		ToStringBuilder b = new ToStringBuilder(this, ToStringStyle.SHORT_PREFIX_STYLE);
+		b.append("resourceType", getResourceType());
 		b.append("paramName", getParamName());
-		b.append("resourceId", getResourcePid());
 		b.append("system", getSystem());
 		b.append("value", getValue());
+		b.append("hashIdentity", myHashIdentity);
 		return b.build();
 	}
 
 	@Override
-	public boolean matches(IQueryParameterType theParam) {
+	public boolean matches(IQueryParameterType theParam, boolean theUseOrdinalDatesForDayComparison) {
 		if (!(theParam instanceof TokenParam)) {
 			return false;
 		}
 		TokenParam token = (TokenParam) theParam;
-		boolean retval = false;
+		boolean retVal = false;
 		String valueString = defaultString(getValue());
 		String tokenValueString = defaultString(token.getValue());
 
 		// Only match on system if it wasn't specified
 		if (token.getSystem() == null || token.getSystem().isEmpty()) {
 			if (valueString.equalsIgnoreCase(tokenValueString)) {
-				retval = true;
+				retVal = true;
 			}
 		} else if (tokenValueString == null || tokenValueString.isEmpty()) {
 			if (token.getSystem().equalsIgnoreCase(getSystem())) {
-				retval = true;
+				retVal = true;
 			}
 		} else {
 			if (token.getSystem().equalsIgnoreCase(getSystem()) &&
 				valueString.equalsIgnoreCase(tokenValueString)) {
-				retval = true;
+				retVal = true;
 			}
 		}
-		return retval;
+		return retVal;
 	}
 
-	public static long calculateHashSystem(String theResourceType, String theParamName, String theSystem) {
-		return hash(theResourceType, theParamName, trim(theSystem));
+	public static long calculateHashSystem(PartitionSettings thePartitionSettings, RequestPartitionId theRequestPartitionId, String theResourceType, String theParamName, String theSystem) {
+		return hash(thePartitionSettings, theRequestPartitionId, theResourceType, theParamName, trim(theSystem));
 	}
 
-	public static long calculateHashSystemAndValue(String theResourceType, String theParamName, String theSystem, String theValue) {
-		return hash(theResourceType, theParamName, defaultString(trim(theSystem)), trim(theValue));
+	public static long calculateHashSystemAndValue(PartitionSettings thePartitionSettings, RequestPartitionId theRequestPartitionId, String theResourceType, String theParamName, String theSystem, String theValue) {
+		return hash(thePartitionSettings, theRequestPartitionId, theResourceType, theParamName, defaultString(trim(theSystem)), trim(theValue));
 	}
 
-	public static long calculateHashValue(String theResourceType, String theParamName, String theValue) {
-		return hash(theResourceType, theParamName, trim(theValue));
+	public static long calculateHashValue(PartitionSettings thePartitionSettings, RequestPartitionId theRequestPartitionId, String theResourceType, String theParamName, String theValue) {
+		String value = trim(theValue);
+		return hash(thePartitionSettings, theRequestPartitionId, theResourceType, theParamName, value);
 	}
+
 
 }

@@ -1,13 +1,14 @@
 package ca.uhn.fhir.jpa.subscription.resthook;
 
 import ca.uhn.fhir.jpa.config.StoppableSubscriptionDeliveringRestHookSubscriber;
+import ca.uhn.fhir.jpa.model.util.JpaConstants;
 import ca.uhn.fhir.jpa.subscription.BaseSubscriptionsR4Test;
-import ca.uhn.fhir.jpa.subscription.module.cache.SubscriptionConstants;
 import ca.uhn.fhir.rest.api.CacheControlDirective;
 import ca.uhn.fhir.rest.api.Constants;
 import ca.uhn.fhir.rest.api.MethodOutcome;
 import ca.uhn.fhir.rest.server.exceptions.UnprocessableEntityException;
 import org.hl7.fhir.instance.model.api.IBaseBundle;
+import org.hl7.fhir.instance.model.api.IIdType;
 import org.hl7.fhir.r4.model.*;
 import org.junit.After;
 import org.junit.Assert;
@@ -16,13 +17,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import static org.awaitility.Awaitility.await;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.matchesPattern;
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Test the rest-hook subscriptions
@@ -35,6 +43,7 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 
 	@After
 	public void cleanupStoppableSubscriptionDeliveringRestHookSubscriber() {
+		ourLog.info("@After");
 		myStoppableSubscriptionDeliveringRestHookSubscriber.setCountDownLatch(null);
 		myStoppableSubscriptionDeliveringRestHookSubscriber.unPause();
 	}
@@ -227,6 +236,34 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 		waitForSize(100, ourUpdatedObservations);
 	}
 
+
+	@Test
+	public void testSubscriptionRegistryLoadsSubscriptionsFromDatabase() throws Exception {
+		String payload = "application/fhir+json";
+
+		String code = "1000000050";
+		String criteria1 = "Observation?";
+
+		createSubscription(criteria1, payload);
+		waitForActivatedSubscriptionCount(1);
+
+		// Manually unregister all subscriptions
+		mySubscriptionRegistry.unregisterAllSubscriptions();
+		waitForActivatedSubscriptionCount(0);
+
+		// Force a reload
+		mySubscriptionLoader.doSyncSubscriptionsForUnitTest();
+
+		// Send a matching observation
+		Observation observation = new Observation();
+		observation.getIdentifierFirstRep().setSystem("foo").setValue("ID");
+		observation.getCode().addCoding().setCode(code).setSystem("SNOMED-CT");
+		observation.setStatus(Observation.ObservationStatus.FINAL);
+		myObservationDao.create(observation);
+
+		waitForSize(1, ourUpdatedObservations);
+	}
+
 	@Test
 	public void testActiveSubscriptionShouldntReActivate() throws Exception {
 		String criteria = "Observation?code=111111111&_format=xml";
@@ -300,12 +337,12 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 
 		subscription1
 			.getChannel()
-			.addExtension(SubscriptionConstants.EXT_SUBSCRIPTION_RESTHOOK_STRIP_VERSION_IDS, new BooleanType("true"));
+			.addExtension(JpaConstants.EXT_SUBSCRIPTION_RESTHOOK_STRIP_VERSION_IDS, new BooleanType("true"));
 		ourLog.info("** About to update subscription");
 
-		int modCount = myCountingInterceptor.getSentCount();
+		int modCount = (int) myCountingInterceptor.getSentCount("Subscription");
 		ourClient.update().resource(subscription1).execute();
-		waitForSize(modCount + 1, () -> myCountingInterceptor.getSentCount());
+		waitForSize(modCount + 2, () -> myCountingInterceptor.getSentCount("Subscription"), () -> myCountingInterceptor.toString());
 
 		ourLog.info("** About to send observation");
 		Observation observation2 = sendObservation(code, "SNOMED-CT");
@@ -376,7 +413,7 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 		Subscription subscription = newSubscription(criteria1, payload);
 		subscription
 			.getChannel()
-			.addExtension(SubscriptionConstants.EXT_SUBSCRIPTION_RESTHOOK_DELIVER_LATEST_VERSION, new BooleanType("true"));
+			.addExtension(JpaConstants.EXT_SUBSCRIPTION_RESTHOOK_DELIVER_LATEST_VERSION, new BooleanType("true"));
 		ourClient.create().resource(subscription).execute();
 
 		waitForActivatedSubscriptionCount(1);
@@ -450,7 +487,7 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 		waitForSize(3, ourUpdatedObservations);
 
 		ourClient.delete().resourceById(new IdType("Subscription/" + subscription2.getId())).execute();
-		waitForQueueToDrain();
+		waitForActivatedSubscriptionCount(1);
 
 		Observation observationTemp3 = sendObservation(code, "SNOMED-CT");
 		waitForQueueToDrain();
@@ -867,13 +904,49 @@ public class RestHookTestR4Test extends BaseSubscriptionsR4Test {
 		String criteriaGood = "Patient?gender=male";
 		Subscription subscription = newSubscription(criteriaGood, payload);
 		ourClient.create().resource(subscription).execute();
-		assertEquals(1, subscriptionCount());
+		await().until(() -> subscriptionCount() == 1);
 	}
+
+	/**
+	 * Make sure we don't activate a subscription if its type is incorrect
+	 */
+	@Test
+	public void testSubscriptionDoesntActivateIfRestHookIsNotEnabled() throws InterruptedException {
+		Set<org.hl7.fhir.dstu2.model.Subscription.SubscriptionChannelType> existingSupportedSubscriptionTypes = myDaoConfig.getSupportedSubscriptionTypes();
+		myDaoConfig.clearSupportedSubscriptionTypesForUnitTest();
+		try {
+
+			Subscription subscription = newSubscription("Observation?", "application/fhir+json");
+			IIdType id = ourClient.create().resource(subscription).execute().getId().toUnqualifiedVersionless();
+
+			Thread.sleep(1000);
+			subscription = ourClient.read().resource(Subscription.class).withId(id).execute();
+			assertEquals(Subscription.SubscriptionStatus.REQUESTED, subscription.getStatus());
+
+		} finally {
+			existingSupportedSubscriptionTypes.forEach(t -> myDaoConfig.addSupportedSubscriptionType(t));
+		}
+	}
+
 
 	private int subscriptionCount() {
 		IBaseBundle found = ourClient.search().forResource(Subscription.class).cacheControl(new CacheControlDirective().setNoCache(true)).execute();
 		return toUnqualifiedVersionlessIdValues(found).size();
 	}
+
+	@Test
+	public void testSubscriptionWithNoStatusIsRejected() {
+		Subscription subscription = newSubscription("Observation?", "application/json");
+		subscription.setStatus(null);
+
+		try {
+			ourClient.create().resource(subscription).execute();
+			fail();
+		} catch (UnprocessableEntityException e) {
+			assertThat(e.getMessage(), containsString("Can not process submitted Subscription - Subscription.status must be populated on this server"));
+		}
+	}
+
 
 	@Test
 	public void testBadSubscriptionDoesntPersist() {

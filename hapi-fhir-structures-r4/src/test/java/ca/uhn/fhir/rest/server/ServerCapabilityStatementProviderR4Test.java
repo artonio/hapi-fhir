@@ -8,12 +8,13 @@ import ca.uhn.fhir.rest.annotation.*;
 import ca.uhn.fhir.rest.api.MethodOutcome;
 import ca.uhn.fhir.rest.api.RestSearchParameterTypeEnum;
 import ca.uhn.fhir.rest.api.server.IBundleProvider;
-import ca.uhn.fhir.rest.client.HttpProxyTest;
+import ca.uhn.fhir.rest.api.server.RequestDetails;
 import ca.uhn.fhir.rest.param.*;
 import ca.uhn.fhir.rest.server.method.BaseMethodBinding;
 import ca.uhn.fhir.rest.server.method.IParameter;
 import ca.uhn.fhir.rest.server.method.SearchMethodBinding;
 import ca.uhn.fhir.rest.server.method.SearchParameter;
+import ca.uhn.fhir.rest.server.servlet.ServletRequestDetails;
 import ca.uhn.fhir.util.TestUtil;
 import ca.uhn.fhir.validation.FhirValidator;
 import ca.uhn.fhir.validation.ValidationResult;
@@ -37,6 +38,8 @@ import static org.hamcrest.Matchers.*;
 import static org.junit.Assert.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+
+import ca.uhn.fhir.model.api.annotation.ResourceDef;
 
 public class ServerCapabilityStatementProviderR4Test {
 
@@ -85,12 +88,12 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new ConditionalProvider());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
 
@@ -102,18 +105,26 @@ public class ServerCapabilityStatementProviderR4Test {
 		assertTrue(res.getConditionalUpdate());
 	}
 
+	private RequestDetails createRequestDetails(RestfulServer theServer) {
+		ServletRequestDetails retVal = new ServletRequestDetails(null);
+		retVal.setServer(theServer);
+		retVal.setFhirServerBase("http://localhost/baseR4");
+		return retVal;
+	}
+
 	@Test
 	public void testExtendedOperationReturningBundle() throws Exception {
 
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new ProviderWithExtendedOperationReturningBundle());
+		rs.setServerAddressStrategy(new HardcodedServerAddressStrategy("http://localhost/baseR4"));
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
@@ -121,7 +132,7 @@ public class ServerCapabilityStatementProviderR4Test {
 		assertEquals(1, conformance.getRest().get(0).getOperation().size());
 		assertEquals("everything", conformance.getRest().get(0).getOperation().get(0).getName());
 
-		OperationDefinition opDef = sc.readOperationDefinition(new IdType("OperationDefinition/Patient-i-everything"));
+		OperationDefinition opDef = sc.readOperationDefinition(new IdType("OperationDefinition/Patient-i-everything"), createRequestDetails(rs));
 		validate(opDef);
 		assertEquals("everything", opDef.getCode());
 		assertThat(opDef.getSystem(), is(false));
@@ -135,13 +146,13 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new ProviderWithExtendedOperationReturningBundle());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs) {
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider() {
 		};
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		OperationDefinition opDef = sc.readOperationDefinition(new IdType("OperationDefinition/Patient-i-everything"));
+		OperationDefinition opDef = sc.readOperationDefinition(new IdType("OperationDefinition/Patient-i-everything"), createRequestDetails(rs));
 		validate(opDef);
 
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(opDef);
@@ -157,12 +168,12 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new InstanceHistoryProvider());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
 
@@ -176,7 +187,7 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new MultiOptionalProvider());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
@@ -194,7 +205,7 @@ public class ServerCapabilityStatementProviderR4Test {
 		}
 
 		assertTrue(found);
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
 
@@ -209,12 +220,12 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new NonConditionalProvider());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
 
@@ -231,13 +242,14 @@ public class ServerCapabilityStatementProviderR4Test {
 	public void testOperationAcrossMultipleTypes() throws Exception {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new MultiTypePatientProvider(), new MultiTypeEncounterProvider());
+		rs.setServerAddressStrategy(new HardcodedServerAddressStrategy("http://localhost/baseR4"));
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
@@ -250,7 +262,7 @@ public class ServerCapabilityStatementProviderR4Test {
 		assertThat(operationIdParts, containsInAnyOrder("Patient-i-someOp", "Encounter-i-someOp", "Patient-i-validate", "Encounter-i-validate"));
 
 		{
-			OperationDefinition opDef = sc.readOperationDefinition(new IdType("OperationDefinition/Patient-i-someOp"));
+			OperationDefinition opDef = sc.readOperationDefinition(new IdType("OperationDefinition/Patient-i-someOp"), createRequestDetails(rs));
 			validate(opDef);
 			ourLog.info(ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(opDef));
 			Set<String> types = toStrings(opDef.getResource());
@@ -265,7 +277,7 @@ public class ServerCapabilityStatementProviderR4Test {
 			assertEquals("Patient", opDef.getParameter().get(1).getType());
 		}
 		{
-			OperationDefinition opDef = sc.readOperationDefinition(new IdType("OperationDefinition/Encounter-i-someOp"));
+			OperationDefinition opDef = sc.readOperationDefinition(new IdType("OperationDefinition/Encounter-i-someOp"), createRequestDetails(rs));
 			validate(opDef);
 			ourLog.info(ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(opDef));
 			Set<String> types = toStrings(opDef.getResource());
@@ -280,7 +292,7 @@ public class ServerCapabilityStatementProviderR4Test {
 			assertEquals("Encounter", opDef.getParameter().get(1).getType());
 		}
 		{
-			OperationDefinition opDef = sc.readOperationDefinition(new IdType("OperationDefinition/Patient-i-validate"));
+			OperationDefinition opDef = sc.readOperationDefinition(new IdType("OperationDefinition/Patient-i-validate"), createRequestDetails(rs));
 			validate(opDef);
 			ourLog.info(ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(opDef));
 			Set<String> types = toStrings(opDef.getResource());
@@ -300,12 +312,12 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new SearchProvider());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 
@@ -319,17 +331,17 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new PlainProviderWithExtendedOperationOnNoType());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs) {
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider() {
 			@Override
-			public CapabilityStatement getServerConformance(HttpServletRequest theRequest) {
-				return super.getServerConformance(theRequest);
+			public CapabilityStatement getServerConformance(HttpServletRequest theRequest, RequestDetails theRequestDetails) {
+				return super.getServerConformance(theRequest, createRequestDetails(rs));
 			}
 		};
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		OperationDefinition opDef = sc.readOperationDefinition(new IdType("OperationDefinition/-is-plain"));
+		OperationDefinition opDef = sc.readOperationDefinition(new IdType("OperationDefinition/-is-plain"), createRequestDetails(rs));
 		validate(opDef);
 
 		assertEquals("plain", opDef.getCode());
@@ -359,12 +371,12 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new ProviderWithRequiredAndOptional());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
 
@@ -389,12 +401,12 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new VreadProvider());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
 
@@ -409,12 +421,12 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new ReadProvider());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
 
@@ -429,7 +441,7 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new SearchProvider());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
@@ -450,7 +462,7 @@ public class ServerCapabilityStatementProviderR4Test {
 			}
 		}
 		assertTrue(found);
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
@@ -469,7 +481,7 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new PatientResourceProvider());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
@@ -486,7 +498,7 @@ public class ServerCapabilityStatementProviderR4Test {
 			}
 		}
 		assertTrue(found);
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
@@ -502,7 +514,7 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new SearchProviderWithWhitelist());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
@@ -519,7 +531,7 @@ public class ServerCapabilityStatementProviderR4Test {
 			}
 		}
 		assertTrue(found);
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
@@ -537,35 +549,35 @@ public class ServerCapabilityStatementProviderR4Test {
 
 		RestfulServer rsNoType = new RestfulServer(ourCtx){
 			@Override
-			public RestulfulServerConfiguration createConfiguration() {
-				RestulfulServerConfiguration retVal = super.createConfiguration();
+			public RestfulServerConfiguration createConfiguration() {
+				RestfulServerConfiguration retVal = super.createConfiguration();
 				retVal.setConformanceDate(new InstantDt("2011-02-22T11:22:33Z"));
 				return retVal;
 			}
 		};
 		rsNoType.registerProvider(new SearchProviderWithListNoType());
-		ServerCapabilityStatementProvider scNoType = new ServerCapabilityStatementProvider(rsNoType);
+		ServerCapabilityStatementProvider scNoType = new ServerCapabilityStatementProvider();
 		rsNoType.setServerConformanceProvider(scNoType);
 		rsNoType.init(createServletConfig());
 
-		CapabilityStatement conformance = scNoType.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = scNoType.getServerConformance(createHttpServletRequest(), createRequestDetails(rsNoType));
 		String confNoType = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(confNoType);
 
 		RestfulServer rsWithType = new RestfulServer(ourCtx){
 			@Override
-			public RestulfulServerConfiguration createConfiguration() {
-				RestulfulServerConfiguration retVal = super.createConfiguration();
+			public RestfulServerConfiguration createConfiguration() {
+				RestfulServerConfiguration retVal = super.createConfiguration();
 				retVal.setConformanceDate(new InstantDt("2011-02-22T11:22:33Z"));
 				return retVal;
 			}
 		};
 		rsWithType.registerProvider(new SearchProviderWithListWithType());
-		ServerCapabilityStatementProvider scWithType = new ServerCapabilityStatementProvider(rsWithType);
+		ServerCapabilityStatementProvider scWithType = new ServerCapabilityStatementProvider();
 		rsWithType.setServerConformanceProvider(scWithType);
 		rsWithType.init(createServletConfig());
 
-		CapabilityStatement conformanceWithType = scWithType.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformanceWithType = scWithType.getServerConformance(createHttpServletRequest(), createRequestDetails(rsWithType));
 		String confWithType = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformanceWithType);
 		ourLog.info(confWithType);
 
@@ -579,12 +591,12 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new SystemHistoryProvider());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
 
@@ -598,12 +610,12 @@ public class ServerCapabilityStatementProviderR4Test {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new TypeHistoryProvider());
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
 
@@ -612,34 +624,17 @@ public class ServerCapabilityStatementProviderR4Test {
 	}
 
 	@Test
-	public void testValidateGeneratedStatement() throws Exception {
-
-		RestfulServer rs = new RestfulServer(ourCtx);
-		rs.setProviders(new MultiOptionalProvider());
-
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
-		rs.setServerConformanceProvider(sc);
-
-		rs.init(createServletConfig());
-
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
-		ourLog.info(ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance));
-
-		ValidationResult result = ourCtx.newValidator().validateWithResult(conformance);
-		assertTrue(result.getMessages().toString(), result.isSuccessful());
-	}
-
-	@Test
 	public void testSystemLevelNamedQueryWithParameters() throws Exception {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new NamedQueryPlainProvider());
+		rs.setServerAddressStrategy(new HardcodedServerAddressStrategy("http://localhost/baseR4"));
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 		ourLog.info(ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance));
 
 		CapabilityStatementRestComponent restComponent = conformance.getRest().get(0);
@@ -649,7 +644,7 @@ public class ServerCapabilityStatementProviderR4Test {
 		String operationReference = operationComponent.getDefinition();
 		assertThat(operationReference, not(nullValue()));
 
-		OperationDefinition operationDefinition = sc.readOperationDefinition(new IdType(operationReference));
+		OperationDefinition operationDefinition = sc.readOperationDefinition(new IdType(operationReference), createRequestDetails(rs));
 		ourLog.info(ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(operationDefinition));
 		validate(operationDefinition);
 		assertThat(operationDefinition.getCode(), is(NamedQueryPlainProvider.QUERY_NAME));
@@ -677,13 +672,14 @@ public class ServerCapabilityStatementProviderR4Test {
 	public void testResourceLevelNamedQueryWithParameters() throws Exception {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new NamedQueryResourceProvider());
+		rs.setServerAddressStrategy(new HardcodedServerAddressStrategy("http://localhost/baseR4"));
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 		ourLog.info(ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance));
 
 		CapabilityStatementRestComponent restComponent = conformance.getRest().get(0);
@@ -691,7 +687,7 @@ public class ServerCapabilityStatementProviderR4Test {
 		String operationReference = operationComponent.getDefinition();
 		assertThat(operationReference, not(nullValue()));
 
-		OperationDefinition operationDefinition = sc.readOperationDefinition(new IdType(operationReference));
+		OperationDefinition operationDefinition = sc.readOperationDefinition(new IdType(operationReference), createRequestDetails(rs));
 		ourLog.info(ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(operationDefinition));
 		validate(operationDefinition);
 		assertThat("The operation name should be the code if no description is set", operationDefinition.getName(), is(NamedQueryResourceProvider.QUERY_NAME));
@@ -720,13 +716,14 @@ public class ServerCapabilityStatementProviderR4Test {
 	public void testExtendedOperationAtTypeLevel() throws Exception {
 		RestfulServer rs = new RestfulServer(ourCtx);
 		rs.setProviders(new TypeLevelOperationProvider());
+		rs.setServerAddressStrategy(new HardcodedServerAddressStrategy("http://localhost/baseR4"));
 
-		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider(rs);
+		ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
 		rs.setServerConformanceProvider(sc);
 
 		rs.init(createServletConfig());
 
-		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest());
+		CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
 
 		String conf = ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance);
 		ourLog.info(conf);
@@ -735,13 +732,33 @@ public class ServerCapabilityStatementProviderR4Test {
 		assertThat(operations.size(), is(1));
 		assertThat(operations.get(0).getName(), is(TypeLevelOperationProvider.OPERATION_NAME));
 
-		OperationDefinition opDef = sc.readOperationDefinition(new IdType(operations.get(0).getDefinition()));
+		OperationDefinition opDef = sc.readOperationDefinition(new IdType(operations.get(0).getDefinition()), createRequestDetails(rs));
 		validate(opDef);
 		assertEquals(TypeLevelOperationProvider.OPERATION_NAME, opDef.getCode());
 		assertThat(opDef.getSystem(), is(false));
 		assertThat(opDef.getType(), is(true));
 		assertThat(opDef.getInstance(), is(false));
 	}
+    
+    @Test
+    public void testProfiledResourceStructureDefinitionLinks() throws Exception {
+        RestfulServer rs = new RestfulServer(ourCtx);
+        rs.setResourceProviders(new ProfiledPatientProvider(), new MultipleProfilesPatientProvider());
+
+        ServerCapabilityStatementProvider sc = new ServerCapabilityStatementProvider();
+        rs.setServerConformanceProvider(sc);
+
+        rs.init(createServletConfig());
+
+        CapabilityStatement conformance = sc.getServerConformance(createHttpServletRequest(), createRequestDetails(rs));
+        ourLog.info(ourCtx.newXmlParser().setPrettyPrint(true).encodeResourceToString(conformance));
+
+        List<CapabilityStatementRestResourceComponent> resources = conformance.getRestFirstRep().getResource();
+        CapabilityStatementRestResourceComponent patientResource = resources.stream()
+            .filter(resource -> "Patient".equals(resource.getType()))
+            .findFirst().get();
+        assertThat(patientResource.getProfile(), containsString(PATIENT_SUB));
+    }
 
 	private List<String> toOperationIdParts(List<CapabilityStatementRestResourceOperationComponent> theOperation) {
 		ArrayList<String> retVal = Lists.newArrayList();
@@ -1100,5 +1117,49 @@ public class ServerCapabilityStatementProviderR4Test {
 		}
 
 	}
+    
+    public static class ProfiledPatientProvider implements IResourceProvider {
+
+    @Override
+    public Class<? extends IBaseResource> getResourceType() {
+      return PatientSubSub2.class;
+    }
+    
+    @Search
+    public List<PatientSubSub2> find() {
+      return null;
+    }
+  }
+  
+  public static class MultipleProfilesPatientProvider implements IResourceProvider {
+
+    @Override
+    public Class<? extends IBaseResource> getResourceType() {
+      return PatientSubSub.class;
+    }
+    
+    @Read(type = PatientTripleSub.class)
+    public PatientTripleSub read(@IdParam IdType theId) {
+      return null;
+    }
+    
+  }
+  
+  public static final String PATIENT_SUB = "PatientSub";
+  public static final String PATIENT_SUB_SUB = "PatientSubSub";
+  public static final String PATIENT_SUB_SUB_2 = "PatientSubSub2";
+  public static final String PATIENT_TRIPLE_SUB = "PatientTripleSub";
+  
+  @ResourceDef(id = PATIENT_SUB)
+  public static class PatientSub extends Patient {}
+  
+  @ResourceDef(id = PATIENT_SUB_SUB)
+  public static class PatientSubSub extends PatientSub {}
+  
+  @ResourceDef(id = PATIENT_SUB_SUB_2)
+  public static class PatientSubSub2 extends PatientSub {}
+  
+  @ResourceDef(id = PATIENT_TRIPLE_SUB)
+  public static class PatientTripleSub extends PatientSubSub {}
 
 }

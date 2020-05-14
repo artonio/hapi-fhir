@@ -9,14 +9,14 @@ import java.util.Map;
  * #%L
  * HAPI FHIR OkHttp Client
  * %%
- * Copyright (C) 2014 - 2019 University Health Network
+ * Copyright (C) 2014 - 2020 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -26,6 +26,7 @@ import java.util.Map;
  */
 
 import ca.uhn.fhir.rest.api.RequestTypeEnum;
+import ca.uhn.fhir.rest.client.api.BaseHttpRequest;
 import ca.uhn.fhir.rest.client.api.IHttpRequest;
 import ca.uhn.fhir.rest.client.api.IHttpResponse;
 import ca.uhn.fhir.util.StopWatch;
@@ -39,7 +40,7 @@ import okhttp3.RequestBody;
  *
  * @author Matthew Clarke | matthew.clarke@orionhealth.com | Orion Health
  */
-public class OkHttpRestfulRequest implements IHttpRequest {
+public class OkHttpRestfulRequest extends BaseHttpRequest implements IHttpRequest {
 
     private final Request.Builder myRequestBuilder;
     private Factory myClient;
@@ -89,7 +90,12 @@ public class OkHttpRestfulRequest implements IHttpRequest {
         return myUrl;
     }
 
-    @Override
+	@Override
+	public void setUri(String theUrl) {
+		myUrl = theUrl;
+	}
+
+	@Override
     public String getHttpVerbName() {
         return myRequestTypeEnum.name();
     }

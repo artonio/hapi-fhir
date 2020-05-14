@@ -4,14 +4,14 @@ package ca.uhn.fhir.rest.server.tenant;
  * #%L
  * HAPI FHIR - Server Framework
  * %%
- * Copyright (C) 2014 - 2019 University Health Network
+ * Copyright (C) 2014 - 2020 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -33,7 +33,16 @@ import static org.apache.commons.lang3.StringUtils.defaultIfBlank;
 
 /**
  * This class is a tenant identification strategy which assumes that a single path
- * element will be present between the server base URL and the beginning
+ * element will be present between the server base URL and individual request.
+ * <p>
+ * For example,
+ * with this strategy enabled, given the following URL on a server with base URL <code>http://example.com/base</code>,
+ * the server will extract the <code>TENANT-A</code> portion of the URL and use it as the tenant identifier. The
+ * request will then proceed to read the resource with ID <code>Patient/123</code>.
+ * </p>
+ * <p>
+ * GET http://example.com/base/TENANT-A/Patient/123
+ * </p>
  */
 public class UrlBaseTenantIdentificationStrategy implements ITenantIdentificationStrategy {
 

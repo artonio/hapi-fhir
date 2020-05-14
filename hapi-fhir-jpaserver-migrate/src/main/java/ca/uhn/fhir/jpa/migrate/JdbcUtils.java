@@ -4,14 +4,14 @@ package ca.uhn.fhir.jpa.migrate;
  * #%L
  * HAPI FHIR JPA Server - Migration
  * %%
- * Copyright (C) 2014 - 2019 University Health Network
+ * Copyright (C) 2014 - 2020 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -22,13 +22,21 @@ package ca.uhn.fhir.jpa.migrate;
 
 import ca.uhn.fhir.jpa.migrate.taskdef.BaseTableColumnTypeTask;
 import ca.uhn.fhir.rest.server.exceptions.InternalErrorException;
+import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.apache.commons.lang3.builder.HashCodeBuilder;
+import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.hibernate.boot.model.naming.Identifier;
 import org.hibernate.dialect.Dialect;
 import org.hibernate.engine.jdbc.dialect.internal.StandardDialectResolver;
 import org.hibernate.engine.jdbc.dialect.spi.DatabaseMetaDataDialectResolutionInfoAdapter;
 import org.hibernate.engine.jdbc.dialect.spi.DialectResolver;
 import org.hibernate.engine.jdbc.env.internal.NormalizingIdentifierHelperImpl;
-import org.hibernate.engine.jdbc.env.spi.*;
+import org.hibernate.engine.jdbc.env.spi.ExtractedDatabaseMetaData;
+import org.hibernate.engine.jdbc.env.spi.IdentifierHelper;
+import org.hibernate.engine.jdbc.env.spi.JdbcEnvironment;
+import org.hibernate.engine.jdbc.env.spi.LobCreatorBuilder;
+import org.hibernate.engine.jdbc.env.spi.NameQualifierSupport;
+import org.hibernate.engine.jdbc.env.spi.QualifiedObjectNameFormatter;
 import org.hibernate.engine.jdbc.spi.SqlExceptionHelper;
 import org.hibernate.engine.jdbc.spi.TypeInfo;
 import org.hibernate.service.ServiceRegistry;
@@ -39,9 +47,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.ColumnMapRowMapper;
 
+import javax.annotation.Nullable;
 import javax.sql.DataSource;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.DatabaseMetaData;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Types;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
@@ -51,10 +67,81 @@ import static org.thymeleaf.util.StringUtils.toUpperCase;
 public class JdbcUtils {
 	private static final Logger ourLog = LoggerFactory.getLogger(JdbcUtils.class);
 
+	public static class ColumnType {
+		private final BaseTableColumnTypeTask.ColumnTypeEnum myColumnTypeEnum;
+		private final Long myLength;
+
+		public ColumnType(BaseTableColumnTypeTask.ColumnTypeEnum theColumnType, Long theLength) {
+			myColumnTypeEnum = theColumnType;
+			myLength = theLength;
+		}
+
+		public ColumnType(BaseTableColumnTypeTask.ColumnTypeEnum theColumnType, int theLength) {
+			this(theColumnType, (long) theLength);
+		}
+
+		public ColumnType(BaseTableColumnTypeTask.ColumnTypeEnum theColumnType) {
+			this(theColumnType, null);
+		}
+
+		@Override
+		public boolean equals(Object theO) {
+			if (this == theO) {
+				return true;
+			}
+
+			if (theO == null || getClass() != theO.getClass()) {
+				return false;
+			}
+
+			ColumnType that = (ColumnType) theO;
+
+			return new EqualsBuilder()
+				.append(myColumnTypeEnum, that.myColumnTypeEnum)
+				.append(myLength, that.myLength)
+				.isEquals();
+		}
+
+		@Override
+		public int hashCode() {
+			return new HashCodeBuilder(17, 37)
+				.append(myColumnTypeEnum)
+				.append(myLength)
+				.toHashCode();
+		}
+
+		@Override
+		public String toString() {
+			ToStringBuilder b = new ToStringBuilder(this);
+			b.append("type", myColumnTypeEnum);
+			if (myLength != null) {
+				b.append("length", myLength);
+			}
+			return b.toString();
+		}
+
+		public BaseTableColumnTypeTask.ColumnTypeEnum getColumnTypeEnum() {
+			return myColumnTypeEnum;
+		}
+
+		public Long getLength() {
+			return myLength;
+		}
+
+		public boolean equals(BaseTableColumnTypeTask.ColumnTypeEnum theTaskColumnType, Long theTaskColumnLength) {
+			ourLog.debug("Comparing existing {} {} to new {} {}", myColumnTypeEnum, myLength, theTaskColumnType, theTaskColumnLength);
+			return myColumnTypeEnum == theTaskColumnType && (theTaskColumnLength == null || theTaskColumnLength.equals(myLength));
+		}
+	}
+
 	/**
 	 * Retrieve all index names
 	 */
 	public static Set<String> getIndexNames(DriverTypeEnum.ConnectionProperties theConnectionProperties, String theTableName) throws SQLException {
+
+		if (!getTableNames(theConnectionProperties).contains(theTableName)) {
+			return Collections.emptySet();
+		}
 
 		DataSource dataSource = Objects.requireNonNull(theConnectionProperties.getDataSource());
 		try (Connection connection = dataSource.getConnection()) {
@@ -62,19 +149,27 @@ public class JdbcUtils {
 				DatabaseMetaData metadata;
 				try {
 					metadata = connection.getMetaData();
-					ResultSet indexes = metadata.getIndexInfo(connection.getCatalog(), connection.getSchema(), massageIdentifier(metadata, theTableName), false, true);
 
+					ResultSet indexes = getIndexInfo(theTableName, connection, metadata, false);
 					Set<String> indexNames = new HashSet<>();
 					while (indexes.next()) {
-
 						ourLog.debug("*** Next index: {}", new ColumnMapRowMapper().mapRow(indexes, 0));
-
 						String indexName = indexes.getString("INDEX_NAME");
 						indexName = toUpperCase(indexName, Locale.US);
 						indexNames.add(indexName);
 					}
 
+					indexes = getIndexInfo(theTableName, connection, metadata, true);
+					while (indexes.next()) {
+						ourLog.debug("*** Next index: {}", new ColumnMapRowMapper().mapRow(indexes, 0));
+						String indexName = indexes.getString("INDEX_NAME");
+						indexName = toUpperCase(indexName, Locale.US);
+						indexNames.add(indexName);
+					}
+
+					indexNames.removeIf(i -> i == null);
 					return indexNames;
+
 				} catch (SQLException e) {
 					throw new InternalErrorException(e);
 				}
@@ -90,7 +185,7 @@ public class JdbcUtils {
 				DatabaseMetaData metadata;
 				try {
 					metadata = connection.getMetaData();
-					ResultSet indexes = metadata.getIndexInfo(connection.getCatalog(), connection.getSchema(), massageIdentifier(metadata, theTableName), false, false);
+					ResultSet indexes = getIndexInfo(theTableName, connection, metadata, false);
 
 					while (indexes.next()) {
 						String indexName = indexes.getString("INDEX_NAME");
@@ -109,10 +204,16 @@ public class JdbcUtils {
 		}
 	}
 
+	private static ResultSet getIndexInfo(String theTableName, Connection theConnection, DatabaseMetaData theMetadata, boolean theUnique) throws SQLException {
+		// FYI Using approximate=false causes a very slow table scan on Oracle
+		boolean approximate = true;
+		return theMetadata.getIndexInfo(theConnection.getCatalog(), theConnection.getSchema(), massageIdentifier(theMetadata, theTableName), theUnique, approximate);
+	}
+
 	/**
 	 * Retrieve all index names
 	 */
-	public static String getColumnType(DriverTypeEnum.ConnectionProperties theConnectionProperties, String theTableName, String theColumnName) throws SQLException {
+	public static ColumnType getColumnType(DriverTypeEnum.ConnectionProperties theConnectionProperties, String theTableName, String theColumnName) throws SQLException {
 		DataSource dataSource = Objects.requireNonNull(theConnectionProperties.getDataSource());
 		try (Connection connection = dataSource.getConnection()) {
 			return theConnectionProperties.getTxTemplate().execute(t -> {
@@ -137,23 +238,31 @@ public class JdbcUtils {
 						int dataType = indexes.getInt("DATA_TYPE");
 						Long length = indexes.getLong("COLUMN_SIZE");
 						switch (dataType) {
+							case Types.BIT:
+							case Types.BOOLEAN:
+								return new ColumnType(BaseTableColumnTypeTask.ColumnTypeEnum.BOOLEAN, length);
 							case Types.VARCHAR:
-								return BaseTableColumnTypeTask.ColumnTypeEnum.STRING.getDescriptor(length);
+								return new ColumnType(BaseTableColumnTypeTask.ColumnTypeEnum.STRING, length);
 							case Types.NUMERIC:
 							case Types.BIGINT:
 							case Types.DECIMAL:
-								return BaseTableColumnTypeTask.ColumnTypeEnum.LONG.getDescriptor(null);
+								return new ColumnType(BaseTableColumnTypeTask.ColumnTypeEnum.LONG, length);
 							case Types.INTEGER:
-								return BaseTableColumnTypeTask.ColumnTypeEnum.INT.getDescriptor(null);
+								return new ColumnType(BaseTableColumnTypeTask.ColumnTypeEnum.INT, length);
 							case Types.TIMESTAMP:
 							case Types.TIMESTAMP_WITH_TIMEZONE:
-								return BaseTableColumnTypeTask.ColumnTypeEnum.DATE_TIMESTAMP.getDescriptor(null);
+								return new ColumnType(BaseTableColumnTypeTask.ColumnTypeEnum.DATE_TIMESTAMP, length);
+							case Types.BLOB:
+								return new ColumnType(BaseTableColumnTypeTask.ColumnTypeEnum.BLOB, length);
+							case Types.CLOB:
+								return new ColumnType(BaseTableColumnTypeTask.ColumnTypeEnum.CLOB, length);
 							default:
 								throw new IllegalArgumentException("Don't know how to handle datatype " + dataType + " for column " + theColumnName + " on table " + theTableName);
 						}
 
 					}
 
+					ourLog.debug("Unable to find column {} in table {}.", theColumnName, theTableName);
 					return null;
 
 				} catch (SQLException e) {
@@ -167,32 +276,40 @@ public class JdbcUtils {
 	/**
 	 * Retrieve all index names
 	 */
-	public static Set<String> getForeignKeys(DriverTypeEnum.ConnectionProperties theConnectionProperties, String theTableName, String theForeignTable) throws SQLException {
+	public static Set<String> getForeignKeys(DriverTypeEnum.ConnectionProperties theConnectionProperties, String theTableName, @Nullable String theForeignTable) throws SQLException {
 		DataSource dataSource = Objects.requireNonNull(theConnectionProperties.getDataSource());
+
 		try (Connection connection = dataSource.getConnection()) {
 			return theConnectionProperties.getTxTemplate().execute(t -> {
 				DatabaseMetaData metadata;
 				try {
 					metadata = connection.getMetaData();
-					ResultSet indexes = metadata.getCrossReference(connection.getCatalog(), connection.getSchema(), massageIdentifier(metadata, theTableName), connection.getCatalog(), connection.getSchema(), massageIdentifier(metadata, theForeignTable));
+					String catalog = connection.getCatalog();
+					String schema = connection.getSchema();
 
-					Set<String> columnNames = new HashSet<>();
-					while (indexes.next()) {
-						String tableName = toUpperCase(indexes.getString("PKTABLE_NAME"), Locale.US);
-						if (!theTableName.equalsIgnoreCase(tableName)) {
-							continue;
-						}
-						tableName = toUpperCase(indexes.getString("FKTABLE_NAME"), Locale.US);
-						if (!theForeignTable.equalsIgnoreCase(tableName)) {
-							continue;
-						}
 
-						String fkName = indexes.getString("FK_NAME");
-						fkName = toUpperCase(fkName, Locale.US);
-						columnNames.add(fkName);
+					List<String> parentTables = new ArrayList<>();
+					if (theTableName != null) {
+						parentTables.add(massageIdentifier(metadata, theTableName));
+					} else {
+						// If no foreign table is specified, we'll try all of them
+						parentTables.addAll(JdbcUtils.getTableNames(theConnectionProperties));
 					}
 
-					return columnNames;
+					String foreignTable = massageIdentifier(metadata, theForeignTable);
+
+					Set<String> fkNames = new HashSet<>();
+					for (String nextParentTable : parentTables) {
+						ResultSet indexes = metadata.getCrossReference(catalog, schema, nextParentTable, catalog, schema, foreignTable);
+
+						while (indexes.next()) {
+							String fkName = indexes.getString("FK_NAME");
+							fkName = toUpperCase(fkName, Locale.US);
+							fkNames.add(fkName);
+						}
+					}
+
+					return fkNames;
 				} catch (SQLException e) {
 					throw new InternalErrorException(e);
 				}
@@ -343,6 +460,9 @@ public class JdbcUtils {
 						if ("SYSTEM TABLE".equalsIgnoreCase(tableType)) {
 							continue;
 						}
+						if (SchemaMigrator.HAPI_FHIR_MIGRATION_TABLENAME.equalsIgnoreCase(tableName)) {
+							continue;
+						}
 
 						columnNames.add(tableName);
 					}
@@ -393,7 +513,9 @@ public class JdbcUtils {
 
 	private static String massageIdentifier(DatabaseMetaData theMetadata, String theCatalog) throws SQLException {
 		String retVal = theCatalog;
-		if (theMetadata.storesLowerCaseIdentifiers()) {
+		if (theCatalog == null) {
+			return null;
+		} else if (theMetadata.storesLowerCaseIdentifiers()) {
 			retVal = retVal.toLowerCase();
 		} else {
 			retVal = retVal.toUpperCase();

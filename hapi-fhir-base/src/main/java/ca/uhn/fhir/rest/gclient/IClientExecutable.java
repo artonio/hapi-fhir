@@ -12,14 +12,14 @@ import java.util.List;
  * #%L
  * HAPI FHIR - Core Library
  * %%
- * Copyright (C) 2014 - 2019 University Health Network
+ * Copyright (C) 2014 - 2020 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -35,7 +35,7 @@ public interface IClientExecutable<T extends IClientExecutable<?, Y>, Y> {
 	 * If set to true, the client will log the request and response to the SLF4J logger. This can be useful for
 	 * debugging, but is generally not desirable in a production situation.
 	 *
-	 * @deprecated Use the client logging interceptor to log requests and responses instead. See <a href="http://jamesagnew.github.io/hapi-fhir/doc_rest_client.html#req_resp_logging">here</a> for more information.
+	 * @deprecated Use the client logging interceptor to log requests and responses instead. See <a href="https://hapifhir.io/hapi-fhir/docs/interceptors/built_in_client_interceptors.html">here</a> for more information.
 	 */
 	@Deprecated
 	T andLogRequestAndResponse(boolean theLogRequestAndResponse);
@@ -87,6 +87,21 @@ public interface IClientExecutable<T extends IClientExecutable<?, Y>, Y> {
 	 * @see #encoded(EncodingEnum)
 	 */
 	T encodedXml();
+
+	/**
+	 * Set a HTTP header not explicitly defined in FHIR but commonly used in real-world scenarios. One
+	 * important example is to set the Authorization header (e.g. Basic Auth or OAuth2-based Bearer auth),
+	 * which tends to be cumbersome using {@link ca.uhn.fhir.rest.client.api.IClientInterceptor IClientInterceptors},
+	 * particularly when REST clients shall be reused and are thus supposed to remain stateless.
+	 * <p>It is the responsibility of the caller to care for proper encoding of the header value, e.g.
+	 * using Base64.</p>
+	 * <p>This is a short-cut alternative to using a corresponding client interceptor</p>
+	 *
+	 * @param theHeaderName header name
+	 * @param theHeaderValue header value
+	 * @return
+	 */
+	T withAdditionalHeader(String theHeaderName, String theHeaderValue);
 
 	/**
 	 * Actually execute the client operation

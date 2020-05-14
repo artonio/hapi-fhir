@@ -4,14 +4,14 @@ package ca.uhn.fhir.parser;
  * #%L
  * HAPI FHIR - Core Library
  * %%
- * Copyright (C) 2014 - 2019 University Health Network
+ * Copyright (C) 2014 - 2020 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -43,6 +43,7 @@ import java.io.Writer;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Optional;
 
 import static org.apache.commons.lang3.StringUtils.isBlank;
 import static org.apache.commons.lang3.StringUtils.isNotBlank;
@@ -51,15 +52,9 @@ import static org.apache.commons.lang3.StringUtils.isNotBlank;
  * This class is the FHIR XML parser/encoder. Users should not interact with this class directly, but should use
  * {@link FhirContext#newXmlParser()} to get an instance.
  */
-public class XmlParser extends BaseParser /* implements IParser */ {
+public class XmlParser extends BaseParser {
 
-	static final String ATOM_NS = "http://www.w3.org/2005/Atom";
 	static final String FHIR_NS = "http://hl7.org/fhir";
-	static final String OPENSEARCH_NS = "http://a9.com/-/spec/opensearch/1.1/";
-	static final String RESREF_DISPLAY = "display";
-	static final String RESREF_REFERENCE = "reference";
-	static final String TOMBSTONES_NS = "http://purl.org/atompub/tombstones/1.0";
-	static final String XHTML_NS = "http://www.w3.org/1999/xhtml";
 	private static final org.slf4j.Logger ourLog = org.slf4j.LoggerFactory.getLogger(XmlParser.class);
 
 	// private static final Set<String> RESOURCE_NAMESPACES;
@@ -186,9 +181,6 @@ public class XmlParser extends BaseParser /* implements IParser */ {
 								heldComments.clear();
 							}
 							parserState.endingElement();
-//						if (parserState.isComplete()) {
-//							return parserState.getObject();
-//						}
 							break;
 						}
 						case XMLStreamConstants.CHARACTERS: {
@@ -295,7 +287,8 @@ public class XmlParser extends BaseParser /* implements IParser */ {
 					for (IBaseResource next : getContainedResources().getContainedResources()) {
 						IIdType resourceId = getContainedResources().getResourceId(next);
 						theEventWriter.writeStartElement("contained");
-						encodeResourceToXmlStreamWriter(next, theEventWriter, true, fixContainedResourceId(resourceId.getValue()), theEncodeContext);
+						String value = resourceId.getValue();
+						encodeResourceToXmlStreamWriter(next, theEventWriter, true, fixContainedResourceId(value), theEncodeContext);
 						theEventWriter.writeEndElement();
 					}
 					break;
@@ -308,7 +301,7 @@ public class XmlParser extends BaseParser /* implements IParser */ {
 					}
 					theEventWriter.writeStartElement(theChildName);
 					theEncodeContext.pushPath(resourceName, true);
-					encodeResourceToXmlStreamWriter(resource, theEventWriter, false, theEncodeContext);
+					encodeResourceToXmlStreamWriter(resource, theEventWriter, theIncludedResource, theEncodeContext);
 					theEncodeContext.popPath();
 					theEventWriter.writeEndElement();
 					break;
@@ -360,24 +353,18 @@ public class XmlParser extends BaseParser /* implements IParser */ {
 			}
 
 			if (nextChild instanceof RuntimeChildNarrativeDefinition) {
+				Optional<IBase> narr = nextChild.getAccessor().getFirstValueOrNull(theElement);
 				INarrativeGenerator gen = myContext.getNarrativeGenerator();
-				INarrative narr;
-				if (theResource instanceof IResource) {
-					narr = ((IResource) theResource).getText();
-				} else if (theResource instanceof IDomainResource) {
-					narr = ((IDomainResource) theResource).getText();
-				} else {
-					narr = null;
-				}
-				// FIXME potential null access on narr see line 623
-				if (gen != null && narr.isEmpty()) {
+				if (gen != null && narr.isPresent() == false) {
 					gen.populateResourceNarrative(myContext, theResource);
 				}
-				if (narr != null && narr.isEmpty() == false) {
+
+				narr = nextChild.getAccessor().getFirstValueOrNull(theElement);
+				if (narr.isPresent()) {
 					RuntimeChildNarrativeDefinition child = (RuntimeChildNarrativeDefinition) nextChild;
 					String childName = nextChild.getChildNameByDatatype(child.getDatatype());
 					BaseRuntimeElementDefinition<?> type = child.getChildByName(childName);
-					encodeChildElementToStreamWriter(theResource, theEventWriter, nextChild, narr, childName, type, null, theContainedResource, nextChildElem, theEncodeContext);
+					encodeChildElementToStreamWriter(theResource, theEventWriter, nextChild, narr.get(), childName, type, null, theContainedResource, nextChildElem, theEncodeContext);
 					continue;
 				}
 			}
@@ -387,7 +374,7 @@ public class XmlParser extends BaseParser /* implements IParser */ {
 			} else {
 
 				List<? extends IBase> values = nextChild.getAccessor().getValues(theElement);
-				values = super.preProcessValues(nextChild, theResource, values, nextChildElem, theEncodeContext);
+				values = preProcessValues(nextChild, theResource, values, nextChildElem, theEncodeContext);
 
 				if (values == null || values.isEmpty()) {
 					continue;
@@ -406,7 +393,20 @@ public class XmlParser extends BaseParser /* implements IParser */ {
 					BaseRuntimeElementDefinition<?> childDef = childNameAndDef.getChildDef();
 					String extensionUrl = getExtensionUrl(nextChild.getExtensionUrl());
 
-					if (extensionUrl != null && childName.equals("extension") == false) {
+					boolean isExtension = childName.equals("extension") || childName.equals("modifierExtension");
+					if (isExtension && nextValue instanceof IBaseExtension) {
+						IBaseExtension<?, ?> ext = (IBaseExtension<?, ?>) nextValue;
+						if (isBlank(ext.getUrl())) {
+							ParseLocation loc = new ParseLocation(theEncodeContext.toString() + "." + childName);
+							getErrorHandler().missingRequiredElement(loc, "url");
+						}
+						if (ext.getValue() != null && ext.getExtension().size() > 0) {
+							ParseLocation loc = new ParseLocation(theEncodeContext.toString() + "." + childName);
+							getErrorHandler().extensionContainsValueAndNestedExtensions(loc);
+						}
+					}
+
+					if (extensionUrl != null && isExtension == false) {
 						encodeExtension(theResource, theEventWriter, theContainedResource, nextChildElem, nextChild, nextValue, childName, extensionUrl, childDef, theEncodeContext);
 					} else if (nextChild instanceof RuntimeChildExtension) {
 						IBaseExtension<?, ?> extension = (IBaseExtension<?, ?>) nextValue;
@@ -441,7 +441,13 @@ public class XmlParser extends BaseParser /* implements IParser */ {
 			theEventWriter.writeAttribute("id", elementId);
 		}
 
-		theEventWriter.writeAttribute("url", extensionUrl);
+		if (isBlank(extensionUrl)) {
+			ParseLocation loc = new ParseLocation(theEncodeContext.toString());
+			getErrorHandler().missingRequiredElement(loc, "url");
+		} else {
+			theEventWriter.writeAttribute("url", extensionUrl);
+		}
+
 		encodeChildElementToStreamWriter(theResource, theEventWriter, nextChild, nextValue, childName, childDef, null, theContainedResource, nextChildElem, theEncodeContext);
 		theEventWriter.writeEndElement();
 	}
@@ -603,7 +609,9 @@ public class XmlParser extends BaseParser /* implements IParser */ {
 			}
 
 			String url = getExtensionUrl(next.getUrl());
-			theEventWriter.writeAttribute("url", url);
+			if (isNotBlank(url)) {
+				theEventWriter.writeAttribute("url", url);
+			}
 
 			if (next.getValue() != null) {
 				IBaseDatatype value = next.getValue();
@@ -697,6 +705,12 @@ public class XmlParser extends BaseParser /* implements IParser */ {
 							theEventWriter.writeStartElement(prefix, se.getName().getLocalPart(), namespaceURI);
 							theEventWriter.writeNamespace(prefix, namespaceURI);
 						}
+//						for (Iterator<Attribute> iter= se.getAttributes(); iter.hasNext(); ) {
+//							Attribute next = iter.next();
+//							if ("lang".equals(next.getName().getLocalPart())) {
+//								theEventWriter.writeAttribute("", "", next.getName().getLocalPart(), next.getValue());
+//							}
+//						}
 						firstElement = false;
 					} else {
 						if (isBlank(se.getName().getPrefix())) {
@@ -713,10 +727,10 @@ public class XmlParser extends BaseParser /* implements IParser */ {
 						} else {
 							theEventWriter.writeStartElement(se.getName().getPrefix(), se.getName().getLocalPart(), se.getName().getNamespaceURI());
 						}
-						for (Iterator<?> attrIter = se.getAttributes(); attrIter.hasNext(); ) {
-							Attribute next = (Attribute) attrIter.next();
-							theEventWriter.writeAttribute(next.getName().getLocalPart(), next.getValue());
-						}
+					}
+					for (Iterator<?> attrIter = se.getAttributes(); attrIter.hasNext(); ) {
+						Attribute next = (Attribute) attrIter.next();
+						theEventWriter.writeAttribute(next.getName().getLocalPart(), next.getValue());
 					}
 					break;
 				case XMLStreamConstants.DTD:

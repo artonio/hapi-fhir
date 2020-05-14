@@ -4,14 +4,14 @@ package ca.uhn.fhir.util;
  * #%L
  * HAPI FHIR - Core Library
  * %%
- * Copyright (C) 2014 - 2019 University Health Network
+ * Copyright (C) 2014 - 2020 University Health Network
  * %%
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *      http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -30,6 +30,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
+
+import static org.apache.commons.lang3.StringUtils.defaultIfBlank;
 
 /**
  * Utilities for dealing with parameters resources in a version indepenedent way
@@ -37,12 +40,26 @@ import java.util.Optional;
 public class ParametersUtil {
 
 	public static List<String> getNamedParameterValuesAsString(FhirContext theCtx, IBaseParameters theParameters, String theParameterName) {
+		Function<IPrimitiveType<?>, String> mapper = t -> defaultIfBlank(t.getValueAsString(), null);
+		return extractNamedParameters(theCtx, theParameters, theParameterName, mapper);
+	}
+
+	public static List<Integer> getNamedParameterValuesAsInteger(FhirContext theCtx, IBaseParameters theParameters, String theParameterName) {
+		Function<IPrimitiveType<?>, Integer> mapper = t -> (Integer)t.getValue();
+		return extractNamedParameters(theCtx, theParameters, theParameterName, mapper);
+	}
+
+	public static Optional<Integer> getNamedParameterValueAsInteger(FhirContext theCtx, IBaseParameters theParameters, String theParameterName) {
+		return getNamedParameterValuesAsInteger(theCtx, theParameters, theParameterName).stream().findFirst();
+	}
+
+	private static <T> List<T> extractNamedParameters(FhirContext theCtx, IBaseParameters theParameters, String theParameterName, Function<IPrimitiveType<?>, T> theMapper) {
 		Validate.notNull(theParameters, "theParameters must not be null");
 		RuntimeResourceDefinition resDef = theCtx.getResourceDefinition(theParameters.getClass());
 		BaseRuntimeChildDefinition parameterChild = resDef.getChildByName("parameter");
 		List<IBase> parameterReps = parameterChild.getAccessor().getValues(theParameters);
 
-		List<String> retVal = new ArrayList<>();
+		List<T> retVal = new ArrayList<>();
 
 		for (IBase nextParameter : parameterReps) {
 			BaseRuntimeElementCompositeDefinition<?> nextParameterDef = (BaseRuntimeElementCompositeDefinition<?>) theCtx.getElementDefinition(nextParameter.getClass());
@@ -61,17 +78,19 @@ public class ParametersUtil {
 			List<IBase> valueValues = valueChild.getAccessor().getValues(nextParameter);
 			valueValues
 				.stream()
-				.filter(t->t instanceof IPrimitiveType<?>)
-				.map(t->((IPrimitiveType<?>)t).getValueAsString())
-				.filter(StringUtils::isNotBlank)
+				.filter(t -> t instanceof IPrimitiveType<?>)
+				.map(t->((IPrimitiveType<?>) t))
+				.map(theMapper)
+				.filter(t -> t != null)
 				.forEach(retVal::add);
 
 		}
-
 		return retVal;
 	}
 
 	private static void addClientParameter(FhirContext theContext, Object theValue, IBaseResource theTargetResource, BaseRuntimeChildDefinition paramChild, BaseRuntimeElementCompositeDefinition<?> paramChildElem, String theName) {
+		Validate.notNull(theValue, "theValue must not be null");
+
 		if (theValue instanceof IBaseResource) {
 			IBase parameter = createParameterRepetition(theContext, theTargetResource, paramChild, paramChildElem, theName);
 			paramChildElem.getChildByName("resource").getMutator().addValue(parameter, (IBaseResource) theValue);
@@ -107,11 +126,11 @@ public class ParametersUtil {
 	/**
 	 * Add a paratemer value to a Parameters resource
 	 *
-	 * @param theContext    The FhirContext
-	 * @param theParameters The Parameters resource
-	 * @param theName       The parameter name
+	 * @param theContext           The FhirContext
+	 * @param theParameters        The Parameters resource
+	 * @param theName              The parameter name
 	 * @param thePrimitiveDatatype The datatype, e.g. "string", or "uri"
-	 * @param theValue The value
+	 * @param theValue             The value
 	 */
 	public static void addParameterToParameters(FhirContext theContext, IBaseParameters theParameters, String theName, String thePrimitiveDatatype, String theValue) {
 		Validate.notBlank(thePrimitiveDatatype, "thePrimitiveDatatype must not be null or empty");
@@ -142,9 +161,127 @@ public class ParametersUtil {
 		return value;
 	}
 
+	public static IPrimitiveType<?> createUri(FhirContext theContext, String theValue) {
+		IPrimitiveType<?> value = (IPrimitiveType<?>) theContext.getElementDefinition("uri").newInstance(theValue);
+		return value;
+	}
+
+	public static IPrimitiveType<?> createCode(FhirContext theContext, String theValue) {
+		IPrimitiveType<?> value = (IPrimitiveType<?>) theContext.getElementDefinition("code").newInstance(theValue);
+		return value;
+	}
+
 	public static IBaseParameters newInstance(FhirContext theContext) {
 		Validate.notNull(theContext, "theContext must not be null");
 		return (IBaseParameters) theContext.getResourceDefinition("Parameters").newInstance();
 	}
 
+	@SuppressWarnings("unchecked")
+	public static void addParameterToParametersBoolean(FhirContext theCtx, IBaseParameters theParameters, String theName, boolean theValue) {
+		IPrimitiveType<Boolean> value = (IPrimitiveType<Boolean>) theCtx.getElementDefinition("boolean").newInstance();
+		value.setValue(theValue);
+		addParameterToParameters(theCtx, theParameters, theName, value);
+	}
+
+	@SuppressWarnings("unchecked")
+	public static void addParameterToParametersCode(FhirContext theCtx, IBaseParameters theParameters, String theName, String theValue) {
+		IPrimitiveType<String> value = (IPrimitiveType<String>) theCtx.getElementDefinition("code").newInstance();
+		value.setValue(theValue);
+		addParameterToParameters(theCtx, theParameters, theName, value);
+	}
+
+	@SuppressWarnings("unchecked")
+	public static void addParameterToParametersInteger(FhirContext theCtx, IBaseParameters theParameters, String theName, int theValue) {
+		IPrimitiveType<Integer> count = (IPrimitiveType<Integer>) theCtx.getElementDefinition("integer").newInstance();
+		count.setValue(theValue);
+		addParameterToParameters(theCtx, theParameters, theName, count);
+
+	}
+
+	public static void addParameterToParametersReference(FhirContext theCtx, IBaseParameters theParameters, String theName, String theReference) {
+		IBaseReference target = (IBaseReference) theCtx.getElementDefinition("reference").newInstance();
+		target.setReference(theReference);
+		addParameterToParameters(theCtx, theParameters, theName, target);
+	}
+
+	@SuppressWarnings("unchecked")
+	public static void addParameterToParametersString(FhirContext theCtx, IBaseParameters theParameters, String theName, String theValue) {
+		IPrimitiveType<String> value = (IPrimitiveType<String>) theCtx.getElementDefinition("string").newInstance();
+		value.setValue(theValue);
+		addParameterToParameters(theCtx, theParameters, theName, value);
+	}
+
+	@SuppressWarnings("unchecked")
+	public static void addParameterToParametersUri(FhirContext theCtx, IBaseParameters theParameters, String theName, String theValue) {
+		IPrimitiveType<String> value = (IPrimitiveType<String>) theCtx.getElementDefinition("uri").newInstance();
+		value.setValue(theValue);
+		addParameterToParameters(theCtx, theParameters, theName, value);
+
+	}
+
+	/**
+	 * Add a parameter with no value (typically because we'll be adding sub-parameters)
+	 */
+	public static IBase addParameterToParameters(FhirContext theContext, IBaseParameters theParameters, String theName) {
+		RuntimeResourceDefinition def = theContext.getResourceDefinition(theParameters);
+		BaseRuntimeChildDefinition paramChild = def.getChildByName("parameter");
+		BaseRuntimeElementCompositeDefinition<?> paramChildElem = (BaseRuntimeElementCompositeDefinition<?>) paramChild.getChildByName("parameter");
+
+		return createParameterRepetition(theContext, theParameters, paramChild, paramChildElem, theName);
+	}
+
+	public static void addPartCode(FhirContext theContext, IBase theParameter, String theName, String theCode) {
+		IPrimitiveType<String> value = (IPrimitiveType<String>) theContext.getElementDefinition("code").newInstance();
+		value.setValue(theCode);
+
+		addPart(theContext, theParameter, theName, value);
+	}
+
+	public static void addPartString(FhirContext theContext, IBase theParameter, String theName, String theValue) {
+		IPrimitiveType<String> value = (IPrimitiveType<String>) theContext.getElementDefinition("string").newInstance();
+		value.setValue(theValue);
+
+		addPart(theContext, theParameter, theName, value);
+	}
+
+	public static void addPartCoding(FhirContext theContext, IBase theParameter, String theName, String theSystem, String theCode, String theDisplay) {
+		IBase coding = theContext.getElementDefinition("coding").newInstance();
+
+		BaseRuntimeElementCompositeDefinition<?> codingDef = (BaseRuntimeElementCompositeDefinition<?>) theContext.getElementDefinition(coding.getClass());
+		codingDef.getChildByName("system").getMutator().addValue(coding, createUri(theContext, theSystem));
+		codingDef.getChildByName("code").getMutator().addValue(coding, createCode(theContext, theCode));
+		codingDef.getChildByName("display").getMutator().addValue(coding, createString(theContext, theDisplay));
+
+		addPart(theContext, theParameter, theName, coding);
+	}
+
+	public static void addPart(FhirContext theContext, IBase theParameter, String theName, IBase theValue) {
+		BaseRuntimeElementCompositeDefinition<?> def = (BaseRuntimeElementCompositeDefinition<?>) theContext.getElementDefinition(theParameter.getClass());
+		BaseRuntimeChildDefinition partChild = def.getChildByName("part");
+
+		BaseRuntimeElementCompositeDefinition<?> partChildElem = (BaseRuntimeElementCompositeDefinition<?>) partChild.getChildByName("part");
+		IBase part = partChildElem.newInstance();
+		partChild.getMutator().addValue(theParameter, part);
+
+		IPrimitiveType<String> name = (IPrimitiveType<String>) theContext.getElementDefinition("string").newInstance();
+		name.setValue(theName);
+		partChildElem.getChildByName("name").getMutator().addValue(part, name);
+
+		partChildElem.getChildByName("value[x]").getMutator().addValue(part, theValue);
+	}
+
+	public static void addPartResource(FhirContext theContext, IBase theParameter, String theName, IBaseResource theValue) {
+		BaseRuntimeElementCompositeDefinition<?> def = (BaseRuntimeElementCompositeDefinition<?>) theContext.getElementDefinition(theParameter.getClass());
+		BaseRuntimeChildDefinition partChild = def.getChildByName("part");
+
+		BaseRuntimeElementCompositeDefinition<?> partChildElem = (BaseRuntimeElementCompositeDefinition<?>) partChild.getChildByName("part");
+		IBase part = partChildElem.newInstance();
+		partChild.getMutator().addValue(theParameter, part);
+
+		IPrimitiveType<String> name = (IPrimitiveType<String>) theContext.getElementDefinition("string").newInstance();
+		name.setValue(theName);
+		partChildElem.getChildByName("name").getMutator().addValue(part, name);
+
+		partChildElem.getChildByName("resource").getMutator().addValue(part, theValue);
+	}
 }
