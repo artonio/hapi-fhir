@@ -1,7 +1,10 @@
 package ca.uhn.fhir.parser;
 
-import ca.uhn.fhir.context.FhirContext;
-import ca.uhn.fhir.context.RuntimeResourceDefinition;
+import ca.uhn.fhir.context.*;
+import ca.uhn.fhir.model.api.IResource;
+import ca.uhn.fhir.model.api.annotation.Child;
+import ca.uhn.fhir.model.base.composite.BaseContainedDt;
+import ca.uhn.fhir.parser.json.JsonLikeWriter;
 import ca.uhn.fhir.rest.api.EncodingEnum;
 import org.apache.commons.lang3.StringUtils;
 import org.eclipse.rdf4j.model.BNode;
@@ -13,6 +16,7 @@ import org.eclipse.rdf4j.model.util.ModelBuilder;
 import org.eclipse.rdf4j.model.vocabulary.RDF;
 import org.eclipse.rdf4j.rio.helpers.BasicWriterSettings;
 import org.eclipse.rdf4j.rio.turtle.TurtleWriter;
+import org.hl7.fhir.instance.model.api.IBase;
 import org.hl7.fhir.instance.model.api.IBaseResource;
 import org.hl7.fhir.instance.model.api.IIdType;
 
@@ -20,9 +24,9 @@ import java.io.IOException;
 import java.io.Reader;
 import java.io.StringWriter;
 import java.io.Writer;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
+
+import static org.apache.commons.lang3.StringUtils.isNotBlank;
 
 public class RdfParser extends BaseParser {
 
@@ -106,31 +110,179 @@ public class RdfParser extends BaseParser {
         RuntimeResourceDefinition resDef = myContext.getResourceDefinition(theResource);
         Map<String, String> fieldClassMap = myContext.getFieldDeclaringClassMap(theResource);
 
+        // JsonParser line 617
         if (theObjectNameOrNull == null) {
         } else {
         }
 
-        String resId = UUID.randomUUID().toString();
-        String resourceUrl = fhirUrl
-                                .concat(resDef.getName())
-                                .concat("/")
-                                .concat(resId);
+        String resId = "";
         if (theResourceId != null && theResourceId.hasIdPart()) {
+        		// What is extensions and modifierExtensions JsonParser line 626
             resId = theResourceId.getIdPart();
-            resourceUrl = fhirUrl
-                    .concat(resDef.getName())
-                    .concat("/")
-                    .concat(resId);
-        }
+        } else {
+        		resId = UUID.randomUUID().toString();
+		  }
+		 String resourceUrl = fhirUrl
+			 .concat(resDef.getName())
+			 .concat("/")
+			 .concat(resId);
 
         this.makeIdentifierTriple(resourceUrl, "fhir:" + resDef.getName());
         this.makeResourceIdTriple(resourceUrl, resId, fieldClassMap);
+
+		 if (theResource instanceof IResource) {
+			 IResource resource = (IResource) theResource;
+		 	// TODO:  JsonParser line 647
+			 System.out.println("I am an instance of IResource");
+		 }
+
+		 encodeCompositeElementToStreamWriter(theResDef, theResource, theResource, theEventWriter, theContainedResource, new CompositeChildElement(resDef, theEncodeContext), theEncodeContext);
+
+        this.makeFakeFamilyNameTriple(resourceUrl, "fhir:" + resDef.getName(), 0, fieldClassMap);
+        this.makeFakeFamilyNameTriple(resourceUrl, "fhir:" + resDef.getName(), 1, fieldClassMap);
 
        this.logTurtle(builder);
 
 
 
     }
+
+	private void encodeCompositeElementToStreamWriter(RuntimeResourceDefinition theResDef, IBaseResource theResource, IBase theNextValue, TurtleWriter theEventWriter, boolean theContainedResource, CompositeChildElement theParent, EncodeContext theEncodeContext) throws IOException, DataFormatException {
+
+    	// TODO: How do we write comments in RDF Format???
+//		writeCommentsPreAndPost(theNextValue, theEventWriter);
+		encodeCompositeElementChildrenToStreamWriter(theResDef, theResource, theNextValue, theEventWriter, theContainedResource, theParent, theEncodeContext);
+	}
+
+	private void encodeCompositeElementChildrenToStreamWriter(RuntimeResourceDefinition theResDef, IBaseResource theResource, IBase theElement, TurtleWriter theEventWriter,
+																				 boolean theContainedResource, CompositeChildElement theParent, EncodeContext theEncodeContext) throws IOException {
+		{
+			String elementId = getCompositeElementId(theElement);
+			if (isNotBlank(elementId)) {
+				System.out.println("ElementId: " + elementId);
+			}
+		}
+
+		// TODO: What is a writtenExtension?
+		boolean haveWrittenExtensions = false;
+		for (CompositeChildElement nextChildElem : super.compositeChildIterator(theElement, theContainedResource, theParent, theEncodeContext)) {
+			BaseRuntimeChildDefinition nextChild = nextChildElem.getDef();
+			if (nextChildElem.getDef().getElementName().equals("extension") || nextChildElem.getDef().getElementName().equals("modifierExtension")
+				|| nextChild instanceof RuntimeChildDeclaredExtensionDefinition) {
+				if (!haveWrittenExtensions) {
+//					extractAndWriteExtensionsAsDirectChild(theElement, theEventWriter, myContext.getElementDefinition(theElement.getClass()), theResDef, theResource, nextChildElem, theParent, theEncodeContext);
+					haveWrittenExtensions = true;
+				}
+				continue;
+			}
+
+			// TODO: JsonParser line 351
+			// if (nextChild instanceof RuntimeChildNarrativeDefinition)
+			// TODO: What is RuntimeChildNarrativeDefinition?
+			// else if (nextChild instanceof RuntimeChildContainedResources)
+			// TODO: What is RuntimeChildContainedResources?
+
+
+			List<? extends IBase> values = nextChild.getAccessor().getValues(theElement);
+			values = super.preProcessValues(nextChild, theResource, values, nextChildElem, theEncodeContext);
+
+			if (values == null || values.isEmpty()) {
+				continue;
+			}
+
+			String currentChildName = null;
+			boolean inArray = false;
+
+			// TODO: JsonParser line 390
+//			ArrayList<ArrayList<JsonParser.HeldExtension>> extensions = new ArrayList<ArrayList<JsonParser.HeldExtension>>(0);
+//			ArrayList<ArrayList<JsonParser.HeldExtension>> modifierExtensions = new ArrayList<ArrayList<JsonParser.HeldExtension>>(0);
+//			ArrayList<ArrayList<String>> comments = new ArrayList<ArrayList<String>>(0);
+//			ArrayList<String> ids = new ArrayList<String>(0);
+
+			int valueIdx = 0;
+			for (IBase nextValue : values) {
+				IBase v = nextValue;
+				if (nextValue == null || nextValue.isEmpty()) {
+					if (nextValue instanceof BaseContainedDt) {
+						if (theContainedResource || getContainedResources().isEmpty()) {
+							continue;
+						}
+					} else {
+						continue;
+					}
+				}
+
+				BaseParser.ChildNameAndDef childNameAndDef = super.getChildNameAndDef(nextChild, nextValue);
+				if (childNameAndDef == null) {
+					continue;
+				}
+
+				/*
+				 * Often the two values below will be the same thing. There are cases though
+				 * where they will not be. An example would be Observation.value, which is
+				 * a choice type. If the value contains a Quantity, then:
+				 * nextChildGenericName = "value"
+				 * nextChildSpecificName = "valueQuantity"
+				 */
+				String nextChildSpecificName = childNameAndDef.getChildName();
+				String nextChildGenericName = nextChild.getElementName();
+
+				System.out.println("nextChildSpecificName: " + nextChildSpecificName);
+				System.out.println("nextChildGenericName: " + nextChildGenericName);
+
+				theEncodeContext.pushPath(nextChildGenericName, false);
+
+				BaseRuntimeElementDefinition<?> childDef = childNameAndDef.getChildDef();
+				boolean primitive = childDef.getChildType() == BaseRuntimeElementDefinition.ChildTypeEnum.PRIMITIVE_DATATYPE;
+
+				if ((childDef.getChildType() == BaseRuntimeElementDefinition.ChildTypeEnum.CONTAINED_RESOURCES || childDef.getChildType() == BaseRuntimeElementDefinition.ChildTypeEnum.CONTAINED_RESOURCE_LIST) && theContainedResource) {
+					continue;
+				}
+
+				boolean force = false;
+				if (primitive) {
+					// TODO: Code dealing with if nextValue instance of Some Extension | JsonParser line 434
+					String elementId = getCompositeElementId(nextValue);
+					if (isNotBlank(elementId)) {
+						force = true;
+						System.out.println("elementId: " + elementId);
+						// TODO: What does this do? | JsonParser line: 459
+//						addToHeldIds(valueIdx, ids, elementId);
+					}
+				}
+
+				if (currentChildName == null || !currentChildName.equals(nextChildSpecificName)) {
+					if (inArray) {
+						System.out.println("inArray: " + inArray);
+						// TODO: End array
+					}
+					if (nextChild.getMax() > 1 || nextChild.getMax() == Child.MAX_UNLIMITED) {
+						// TODO: Begin Array
+						inArray = true;
+					}
+				}  else if (nextChild instanceof RuntimeChildNarrativeDefinition && theContainedResource) {
+					// suppress narratives from contained resources
+				} else {
+
+				}
+			}
+
+		}
+
+
+	}
+
+	private void makeFakeFamilyNameTriple(String originalSubject, String resourceType, int index, Map<String, String> fieldClassMap) {
+		String key = "id";
+		String resourceIdPredicate = "fhir:" + fieldClassMap.get(key) + "." + key + ".name";
+		ValueFactory vf = SimpleValueFactory.getInstance();
+		BNode bNode = vf.createBNode();
+		builder.add(resourceType, bNode)
+					.subject(bNode)
+					.add("fhir:index", index)
+					.subject(originalSubject);
+
+	}
 
     private void makeResourceIdTriple(String originalSubject, String id, Map<String, String> fieldClassMap) {
         String key = "id";
@@ -144,6 +296,7 @@ public class RdfParser extends BaseParser {
                 .subject(originalSubject);
     }
 
+    // This is equivalent of resourceType in JsonParser
     private void makeIdentifierTriple(String resourceUrl, String resourceType) {
         builder.subject(resourceUrl)
                 .add(RDF.TYPE, resourceType)
